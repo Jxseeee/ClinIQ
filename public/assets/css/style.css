@@ -1483,16 +1483,18 @@ table tr:hover {
 }
 
 .student-chat-compose textarea {
-    min-height: 20px;
+    min-height: 34px;
+    height: 34px;
     max-height: 46px;
-    padding: 6px 0 0 12px;
+    padding: 9px 0 0 12px;
     border: 0;
     border-radius: 0;
     resize: none;
     box-shadow: none;
     font-size: 0.95rem;
-    line-height: 1.35;
+    line-height: 1.15;
     background: transparent;
+    overflow: hidden;
 }
 
 .student-chat-compose textarea:focus {
