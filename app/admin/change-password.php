@@ -3,6 +3,7 @@ require __DIR__ . '/../config/auth.php';
 requireAdmin();
 
 $errors = [];
+$adminPageTitle = 'Settings';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $oldPass = $_POST['old_password'] ?? '';
@@ -46,9 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body>
-    <?php include __DIR__ . '/../includes/admin-nav.php'; ?>
-    <div class="container">
+<body class="student-dashboard-page admin-dashboard-page">
+    <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
+    <div class="dashboard-content-card dashboard-narrow-card">
         <h1>Change Your Password</h1>
 
         <?php if (isset($_GET['success'])): ?>
@@ -106,6 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
         </div>
     </div>
+    <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
     <script src="../../public/assets/js/main.js"></script>
 </body>
 </html>

@@ -118,10 +118,11 @@ New student accounts are created by admins only. Admin-created students use the 
 │   │   ├── auth.php            # Session & role helpers
 │   │   └── pusher.php          # Pusher client & broadcast helpers
 │   └── includes/
-│       ├── admin-nav.php       # Admin navigation bar
-│       ├── student-nav.php     # Student navigation bar
+│       ├── admin-dashboard-start.php # Admin dashboard shell
+│       ├── admin-dashboard-end.php   # Admin dashboard shell footer
+│       ├── student-dashboard-start.php # Student dashboard shell
+│       ├── student-dashboard-end.php   # Student dashboard shell footer
 │       ├── helpers.php         # Shared query/validation helpers
-│       ├── profile-display.php # Shared read-only profile view
 │       ├── student-form-pdf.php # Clinic/consent PDF rendering helpers
 │       ├── chat-messages.php   # Chat bubble partial
 │       └── ...

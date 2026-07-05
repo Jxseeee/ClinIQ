@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/helpers.php';
 requireAdmin();
 
 $errors = [];
+$adminPageTitle = 'Add Student';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $studentId = trim($_POST['student_id'] ?? '');
@@ -61,9 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body>
-    <?php include __DIR__ . '/../includes/admin-nav.php'; ?>
-    <div class="container">
+<body class="student-dashboard-page admin-dashboard-page">
+    <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
+    <div class="dashboard-content-card dashboard-narrow-card">
         <h1>Add New Student</h1>
         <p class="text-muted">New students will use the default password <strong>Password@123!</strong> and must change it on first login.</p>
 
@@ -113,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
         </div>
     </div>
+    <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
     <script src="../../public/assets/js/main.js"></script>
 </body>
 </html>

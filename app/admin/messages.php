@@ -11,6 +11,10 @@ $selectedId = isset($_GET['student_id']) && ctype_digit((string) $_GET['student_
     ? (int) $_GET['student_id']
     : null;
 
+if ($selectedId === null && !empty($threads)) {
+    $selectedId = (int) $threads[0]['StudentID'];
+}
+
 $messages = [];
 $selectedStudent = null;
 
@@ -31,24 +35,37 @@ if ($selectedId !== null) {
 $basePath = getBasePath();
 $apiBase = $basePath . '/app/api';
 $pusher = pusherPublicConfig();
+$adminPageTitle = 'Messages';
+$adminContentClass = 'student-message-content';
+$adminBreadcrumbTrail = ['Dashboard', 'Messages'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Messages</title>
+    <title>Messages</title>
     <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body>
-    <?php include __DIR__ . '/../includes/admin-nav.php'; ?>
-    <div class="container container-wide">
-        <h1>Student Messages</h1>
-        <p class="text-muted">Reply to student inquiries in real time.</p>
-        <div class="chat-capacity">
-            Active chat users: <strong><?= $activeChatCount ?></strong> / <?= CHAT_ACTIVE_LIMIT ?>
-        </div>
+<body class="student-dashboard-page student-messages-body admin-dashboard-page">
+    <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
+        <div class="student-messages-page">
+            <div class="student-messages-header">
+                <div>
+                    <h1>Messages</h1>
+                    <p>Reply to student inquiries in real time.</p>
+                </div>
+                <div class="student-chat-contact admin-chat-contact">
+                    <span class="student-chat-contact-icon"><?= studentDashboardIcon('headset') ?></span>
+                    <div>
+                        <strong>Student Conversations</strong>
+                        <small>Manage clinic chat requests</small>
+                        <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
+                    </div>
+                </div>
+            </div>
+
         <div id="chat-presence"
              data-presence-url="<?= htmlspecialchars($apiBase . '/chat-presence.php') ?>"
              data-queue-url="<?= htmlspecialchars($basePath . '/public/chat-queue.php') ?>"
@@ -60,7 +77,7 @@ $pusher = pusherPublicConfig();
             </div>
         <?php endif; ?>
 
-        <div class="chat-layout card">
+        <div class="chat-layout card admin-chat-card">
             <aside class="chat-sidebar" id="chat-sidebar">
                 <h2>Conversations</h2>
                 <?php if (empty($threads)): ?>
@@ -99,6 +116,7 @@ $pusher = pusherPublicConfig();
                     </div>
 
                     <div id="chat-app"
+                         class="student-chat-app admin-chat-app"
                          data-api-base="<?= htmlspecialchars($apiBase) ?>"
                          data-presence-url="<?= htmlspecialchars($apiBase . '/chat-presence.php') ?>"
                          data-queue-url="<?= htmlspecialchars($basePath . '/public/chat-queue.php') ?>"
@@ -111,7 +129,7 @@ $pusher = pusherPublicConfig();
                          data-student-id="<?= $selectedId ?>"
                          data-role="admin">
 
-                        <div id="chat-messages" class="chat-messages">
+                        <div id="chat-messages" class="chat-messages student-chat-messages admin-chat-messages <?= empty($messages) ? 'is-empty' : 'has-messages' ?>">
                             <?php if (empty($messages)): ?>
                                 <div class="chat-empty" id="chat-empty">No messages in this conversation yet.</div>
                             <?php else: ?>
@@ -119,10 +137,12 @@ $pusher = pusherPublicConfig();
                             <?php endif; ?>
                         </div>
 
-                        <form id="chat-form" class="chat-compose" method="POST" action="">
+                        <form id="chat-form" class="chat-compose student-chat-compose" method="POST" action="">
                             <textarea id="chat-input" name="content" rows="2"
                                       placeholder="Type your reply…" maxlength="2000" required></textarea>
-                            <button type="submit" class="btn btn-primary">Send</button>
+                            <button type="submit" class="student-chat-send" aria-label="Send message">
+                                <?= studentDashboardIcon('send') ?>
+                            </button>
                         </form>
                     </div>
                 <?php else: ?>
@@ -136,7 +156,8 @@ $pusher = pusherPublicConfig();
                 <?php endif; ?>
             </section>
         </div>
-    </div>
+        </div>
+    <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
     <script src="../../public/assets/js/main.js"></script>
     <script src="../../public/assets/js/chat.js"></script>
 </body>

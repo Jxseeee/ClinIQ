@@ -77,10 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="alert alert-success">You have been logged out.</div>
                 <?php endif; ?>
 
-                <?php if ($error): ?>
-                    <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
-                <?php endif; ?>
-
                 <div class="portal-action-card muted">
                     <span class="portal-action-icon">+</span>
                     <span>
@@ -156,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <button type="button" class="login-modal-back" id="close-login-modal">&larr; Back</button>
             <img class="modal-logo" src="assets/images/favicon.png" alt="FCAT ClinIQ Logo">
             <h2 id="login-modal-title"><span>Login to</span> FCAT ClinIQ</h2>
+
+            <?php if ($error): ?>
+                <div class="alert alert-danger modal-login-alert"><?= htmlspecialchars($error) ?></div>
+            <?php endif; ?>
 
             <form method="POST" action="" class="modal-login-form">
                 <div class="form-group">
