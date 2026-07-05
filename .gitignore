@@ -1,0 +1,14 @@
+.env
+vendor/
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+cache/
+tmp/
+dist/
+build/
