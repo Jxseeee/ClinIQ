@@ -1,14 +1,60 @@
+# Environment and secrets
 .env
+.env.*
+!.env.example
+
+# Composer dependencies
 vendor/
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-.DS_Store
-Thumbs.db
+composer.phar
+
+# Node/frontend dependencies and builds
 node_modules/
-*.log
-cache/
-tmp/
 dist/
 build/
+
+# User uploads and generated public files
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Logs
+*.log
+*.log.*
+logs/
+
+# Runtime cache and temporary files
+cache/
+tmp/
+temp/
+.cache/
+.phpunit.cache/
+.phpunit.result.cache
+
+# Coverage and test output
+coverage/
+tests/_output/
+
+# Local database dumps and backups
+*.sql.gz
+*.sql.zip
+*.dump
+*.bak
+*.backup
+backups/
+
+# Editor and IDE files
+.vscode/
+.idea/
+.vs/
+.cursor/
+*.sublime-project
+*.sublime-workspace
+
+# Local agent skills/config
+.agents/
+skills-lock.json
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/

@@ -112,11 +112,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <section class="portal-brand-panel">
             <div class="portal-brand-content">
-                <h2>FCAT Clinic<br>Management System</h2>
+                <h2>FCAT ClinIQ<br>Management System</h2>
                 <div class="portal-title-rule"></div>
                 <p>A secured system to manage patient records and services.</p>
 
-                <img class="portal-logo" src="assets/images/fcat-clinic-logo.png" alt="FCAT Clinic Logo">
+                <img class="portal-logo" src="assets/images/fcat-clinic-logo.png" alt="FCAT ClinIQ Logo">
 
                 <div class="portal-feature-row">
                     <div class="portal-feature">
@@ -154,8 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="login-modal <?= $error ? 'is-open' : '' ?>" id="login-modal" aria-hidden="<?= $error ? 'false' : 'true' ?>">
         <div class="login-modal-card" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
             <button type="button" class="login-modal-back" id="close-login-modal">&larr; Back</button>
-            <img class="modal-logo" src="assets/images/favicon.png" alt="FCAT Clinic Logo">
-            <h2 id="login-modal-title"><span>Login to</span> FCAT Clinic</h2>
+            <img class="modal-logo" src="assets/images/favicon.png" alt="FCAT ClinIQ Logo">
+            <h2 id="login-modal-title"><span>Login to</span> FCAT ClinIQ</h2>
 
             <form method="POST" action="" class="modal-login-form">
                 <div class="form-group">

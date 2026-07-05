@@ -47,8 +47,8 @@ if (!function_exists('studentDashboardIcon')) {
 ?>
 <aside class="student-sidebar">
     <div class="student-sidebar-brand">
-        <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT Clinic Logo">
-        <span>FCAT Clinic</span>
+        <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT ClinIQ Logo">
+        <span>FCAT ClinIQ</span>
     </div>
 
     <nav class="student-sidebar-nav">
