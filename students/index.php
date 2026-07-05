@@ -8,7 +8,7 @@ $user = currentUser();
 $data = fetchStudentFullProfile($pdo, $studentId);
 $student = $data['student'] ?? [];
 $medHistory = $data['medHistory'] ?? [];
-$announcements = array_slice(fetchAnnouncements($pdo), 0, 2);
+$announcements = fetchAnnouncements($pdo);
 
 cleanupChatPresence($pdo);
 $queueWaiting = (int) $pdo->query("SELECT COUNT(*) FROM ChatQueue")->fetchColumn();
@@ -79,7 +79,6 @@ $studentPageTitle = 'Dashboard';
                                 </article>
                             <?php endforeach; ?>
                         </div>
-                        <a href="messages.php" class="dashboard-view-more">View More</a>
                     <?php else: ?>
                         <div class="dashboard-empty">No announcements at this time.</div>
                     <?php endif; ?>

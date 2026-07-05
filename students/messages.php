@@ -40,6 +40,7 @@ $studentBreadcrumbTrail = ['Dashboard', 'Reports', 'Patient Records', 'Messages'
                 <div>
                     <strong>Clinic Admin</strong>
                     <small>We typically reply within 24 hours</small>
+                    <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                 </div>
             </div>
         </div>

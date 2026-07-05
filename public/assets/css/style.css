@@ -48,68 +48,6 @@ a:hover {
     margin-bottom: 10px;
 }
 
-/* ── Navbar ───────────────────────────────── */
-
-.navbar {
-    background-color: #1a1a2e;
-    padding: 0 20px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.nav-container {
-    max-width: 960px;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
-    min-height: 54px;
-}
-
-.nav-brand {
-    color: #fff;
-    font-weight: 700;
-    font-size: 1.1rem;
-    text-decoration: none;
-}
-
-.nav-brand:hover {
-    text-decoration: none;
-    opacity: 0.9;
-}
-
-.nav-links {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    flex-wrap: wrap;
-}
-
-.nav-links a {
-    color: #cbd5e0;
-    font-size: 0.88rem;
-    text-decoration: none;
-    transition: color 0.15s;
-}
-
-.nav-links a:hover {
-    color: #fff;
-    text-decoration: none;
-}
-
-.nav-user {
-    color: #a0aec0;
-    font-size: 0.82rem;
-    border-left: 1px solid #2d2d44;
-    padding-left: 16px;
-}
-
-.btn-sm {
-    padding: 5px 14px !important;
-    font-size: 0.78rem !important;
-}
-
 /* ── Table ─────────────────────────────────── */
 
 table {
@@ -450,41 +388,6 @@ table tr:hover {
     gap: 10px;
 }
 
-/* ── Announcements ─────────────────────────── */
-
-.announcement-card {
-    background: #fff;
-    border-radius: 8px;
-    padding: 24px 28px;
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
-    margin-top: 18px;
-    border-left: 4px solid #3498db;
-}
-
-.announcement-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-}
-
-.announcement-header h2 {
-    margin-bottom: 4px;
-    font-size: 1.15rem;
-}
-
-.announcement-meta {
-    font-size: 0.82rem;
-    color: #888;
-    margin-bottom: 12px;
-}
-
-.announcement-body {
-    font-size: 0.95rem;
-    line-height: 1.7;
-    color: #444;
-}
-
 /* ── Login Page ────────────────────────────── */
 
 .login-wrapper {
@@ -785,6 +688,10 @@ table tr:hover {
     color: #0b5a1c;
 }
 
+.modal-login-alert {
+    margin: -44px 0 24px;
+}
+
 .modal-login-form .form-group {
     margin-bottom: 24px;
 }
@@ -880,12 +787,6 @@ table tr:hover {
     .login-modal-card {
         padding: 68px 28px 36px;
     }
-}
-
-/* ── Wider Container ───────────────────────── */
-
-.container-wide {
-    max-width: 1100px;
 }
 
 /* ── Form Sections ─────────────────────────── */
@@ -1044,21 +945,6 @@ table tr:hover {
 }
 
 /* ── Real-time Chat ────────────────────────── */
-
-.chat-panel {
-    padding: 0;
-    overflow: hidden;
-}
-
-.chat-capacity {
-    display: inline-block;
-    padding: 8px 12px;
-    margin-bottom: 16px;
-    border-radius: 999px;
-    background: #e8f4fd;
-    color: #1a5f8f;
-    font-size: 0.86rem;
-}
 
 .chat-layout {
     display: grid;
@@ -1395,6 +1281,16 @@ table tr:hover {
     display: block;
     color: #7a827c;
     font-size: clamp(0.7rem, 1.2vh, 0.8rem);
+}
+
+.student-chat-capacity {
+    width: fit-content;
+    margin-top: 4px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #d9f5df;
+    color: #0b5a1c !important;
+    font-weight: 700;
 }
 
 .student-chat-warning {
@@ -2006,6 +1902,26 @@ table tr:hover {
     display: none;
 }
 
+.admin-consent-viewer {
+    align-items: center;
+}
+
+.admin-consent-image-link {
+    text-decoration: none;
+}
+
+.admin-consent-image-link:hover {
+    text-decoration: none;
+}
+
+.admin-consent-empty {
+    width: min(100%, 520px);
+    padding: 24px;
+    border: 1px solid #e6eee6;
+    border-radius: 14px;
+    background: #fff;
+}
+
 .student-dashboard-content > h1 {
     color: #0b5a1c;
     font-size: 1.6rem;
@@ -2093,8 +2009,16 @@ table tr:hover {
 }
 
 .student-announcements-panel {
+    display: flex;
+    flex-direction: column;
     min-height: 380px;
     padding: 26px 28px 18px;
+}
+
+.dashboard-announcement-list {
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 10px;
 }
 
 .dashboard-section-title {
@@ -2285,4 +2209,235 @@ table tr:hover {
     .student-stat-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ── Admin Dashboard Shared Layout ───────────── */
+
+.admin-action-link {
+    color: #315f38;
+    text-decoration: none;
+}
+
+.admin-action-link:hover {
+    text-decoration: underline;
+}
+
+.stat-icon.admin-stat-blue {
+    width: 56px;
+    height: 56px;
+    padding: 13px;
+    border-radius: 14px;
+    background: #d9f5df;
+    color: #22a745;
+}
+
+.dashboard-add-btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    margin-top: auto;
+    background: #065316;
+    padding: 10px 18px;
+}
+
+.dashboard-add-btn:hover {
+    opacity: 0.88;
+}
+
+.admin-full-panel {
+    min-height: auto;
+}
+
+.admin-panel-action {
+    margin-left: auto;
+    background: #065316;
+    padding: 8px 16px;
+}
+
+.admin-announcement-item {
+    grid-template-columns: 58px minmax(0, 1fr) minmax(150px, auto);
+}
+
+.admin-announcement-item p {
+    white-space: pre-line;
+}
+
+.admin-card-meta {
+    display: block;
+    margin-top: 8px;
+    color: #8a9a8d;
+    font-size: 0.75rem;
+}
+
+.admin-card-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.admin-card-actions time {
+    flex-basis: 100%;
+    margin-bottom: 4px;
+}
+
+.admin-chat-card {
+    margin-top: 20px;
+    border-color: #e6eee6;
+    box-shadow: 0 8px 22px rgba(6, 66, 22, 0.08);
+    overflow: hidden;
+    background: #fff;
+}
+
+.admin-dashboard-page .student-messages-header {
+    max-width: none;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+}
+
+.admin-dashboard-page .admin-chat-contact {
+    margin-top: 0;
+}
+
+.admin-dashboard-page .student-chat-contact-icon {
+    width: 44px;
+    height: 44px;
+    padding: 11px;
+}
+
+.admin-dashboard-page .chat-sidebar {
+    background: #fbfcfb;
+    border-right-color: #e6eee6;
+}
+
+.admin-dashboard-page .chat-sidebar h2 {
+    color: #2b6b36;
+}
+
+.admin-dashboard-page .chat-thread-item {
+    border-radius: 12px;
+    border-color: transparent;
+}
+
+.admin-dashboard-page .chat-thread-item:hover,
+.admin-dashboard-page .chat-thread-item.active {
+    background: #eef8ef;
+    border-color: #caecd1;
+}
+
+.admin-dashboard-page .chat-thread-name {
+    color: #255d2f;
+}
+
+.admin-dashboard-page .chat-thread-preview {
+    color: #3a914b;
+}
+
+.admin-dashboard-page .chat-unread-badge {
+    background: #0f7a2d;
+}
+
+.admin-dashboard-page .chat-main {
+    min-height: 0;
+}
+
+.admin-chat-app {
+    flex: 1;
+    min-height: 0;
+}
+
+.admin-dashboard-page .chat-main-header {
+    border-bottom-color: #e6eee6;
+}
+
+.admin-dashboard-page .chat-main-header h2 {
+    color: #111;
+}
+
+.admin-dashboard-page .chat-layout {
+    flex: 1;
+    min-height: 0;
+}
+
+.admin-dashboard-page .chat-placeholder,
+.admin-dashboard-page .chat-empty {
+    color: #69736b;
+}
+
+.admin-dashboard-page .chat-messages {
+    max-height: none;
+    background: #fff;
+}
+
+.admin-chat-messages {
+    padding: clamp(14px, 1.8vh, 24px) 44px 12px;
+}
+
+.admin-dashboard-page .chat-theirs {
+    border-color: #edf2ed;
+}
+
+.admin-dashboard-page .student-chat-compose {
+    margin: 8px 16px 16px;
+}
+
+.admin-table-section {
+    margin-top: 28px;
+    min-height: auto;
+}
+
+.admin-search-box {
+    margin-bottom: 16px;
+}
+
+.admin-search-box input {
+    max-width: 100%;
+    border-color: #dde3dd;
+    border-radius: 8px;
+}
+
+.admin-search-box input:focus {
+    border-color: #14812b;
+}
+
+.admin-dashboard-table {
+    margin-top: 0;
+    box-shadow: none;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e6eee6;
+}
+
+.admin-dashboard-table th {
+    background: #064216;
+    color: #fff;
+}
+
+.admin-dashboard-table tr:nth-child(even) {
+    background: #f6fbf6;
+}
+
+.admin-dashboard-table tr:hover {
+    background: #eef8ef;
+}
+
+.admin-dashboard-table .btn-info,
+.admin-dashboard-table .btn-warning,
+.admin-dashboard-table .btn-danger {
+    background: #0f7a2d;
+    color: #fff;
+}
+
+.admin-dashboard-table .btn-warning {
+    background: #42a95d;
+}
+
+.admin-dashboard-table .btn-danger {
+    background: #2f6f3f;
+}
+
+.admin-dashboard-table .btn:hover {
+    opacity: 0.9;
 }
