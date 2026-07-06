@@ -5,6 +5,8 @@ $basePath = getBasePath();
 $user = currentUser();
 $studentName = $user['name'] ?? 'Student';
 $studentInitial = strtoupper(substr($studentName, 0, 1));
+$studentNotificationCount = countUnreadNotifications($pdo, 'student', (int) ($user['id'] ?? 0));
+$studentNotifications = fetchNotifications($pdo, 'student', (int) ($user['id'] ?? 0));
 $currentPage = basename(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''));
 $studentPageTitle = $studentPageTitle ?? 'Dashboard';
 $studentContentClass = $studentContentClass ?? '';
@@ -12,6 +14,7 @@ $studentContentClass = $studentContentClass ?? '';
 $navItems = [
     'index.php'        => ['Dashboard', 'dashboard'],
     'profile.php'      => ['Patient Records', 'records'],
+    'appointments.php' => ['Appointments', 'calendar'],
     'messages.php'     => ['Messages', 'message'],
 ];
 
@@ -47,16 +50,27 @@ if (!function_exists('studentDashboardIcon')) {
 ?>
 <aside class="student-sidebar">
     <div class="student-sidebar-brand">
-        <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT ClinIQ Logo">
-        <span>FCAT ClinIQ</span>
+        <a href="<?= $basePath ?>/students/index.php" class="student-sidebar-brand-link" aria-label="Go to dashboard">
+            <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT ClinIQ Logo">
+            <span>FCAT ClinIQ</span>
+        </a>
+        <button type="button" class="student-mobile-nav-toggle" aria-expanded="false" aria-controls="student-mobile-nav">
+            Menu
+        </button>
     </div>
 
-    <nav class="student-sidebar-nav">
+    <nav class="student-sidebar-nav" id="student-mobile-nav">
         <?php foreach ($navItems as $file => [$label, $icon]): ?>
             <a href="<?= $basePath ?>/students/<?= $file ?>" class="<?= $currentPage === $file ? 'active' : '' ?>">
                 <span class="student-nav-icon"><?= studentDashboardIcon($icon) ?></span><?= htmlspecialchars($label) ?>
             </a>
         <?php endforeach; ?>
+        <a href="<?= $basePath ?>/students/change-password.php" class="student-mobile-only <?= $currentPage === 'change-password.php' ? 'active' : '' ?>">
+            <span class="student-nav-icon"><?= studentDashboardIcon('settings') ?></span>Settings
+        </a>
+        <a href="<?= $basePath ?>/public/logout.php" class="student-mobile-only">
+            <span class="student-nav-icon"><?= studentDashboardIcon('logout') ?></span>Log out
+        </a>
     </nav>
 
     <div class="student-sidebar-footer">
@@ -86,7 +100,31 @@ if (!function_exists('studentDashboardIcon')) {
                 <span><?= htmlspecialchars($studentPageTitle) ?></span>
             <?php endif; ?>
         </div>
-        <div class="student-notification"><?= studentDashboardIcon('bell') ?></div>
+        <div class="notification-menu"
+             data-notifications-url="<?= $basePath ?>/app/api/notifications.php"
+             data-csrf="<?= htmlspecialchars(csrfToken()) ?>">
+            <button type="button" class="student-notification" aria-expanded="false" aria-label="Show notifications">
+                <?= studentDashboardIcon('bell') ?>
+                <?php if ($studentNotificationCount > 0): ?>
+                    <span class="notification-count"><?= $studentNotificationCount ?></span>
+                <?php endif; ?>
+            </button>
+            <div class="notification-dropdown" role="menu">
+                <strong>Notifications</strong>
+                <?php if (!empty($studentNotifications)): ?>
+                    <?php foreach ($studentNotifications as $notification): ?>
+                        <a href="<?= htmlspecialchars($notification['Link'] ?: '#') ?>" class="<?= (int) $notification['IsRead'] === 0 ? 'is-unread' : '' ?>">
+                            <span><?= htmlspecialchars($notification['Title']) ?></span>
+                            <?php if (!empty($notification['Body'])): ?>
+                                <small><?= htmlspecialchars($notification['Body']) ?></small>
+                            <?php endif; ?>
+                        </a>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <p>No notifications yet.</p>
+                <?php endif; ?>
+            </div>
+        </div>
     </header>
 
     <section class="student-dashboard-content <?= htmlspecialchars($studentContentClass) ?>">

@@ -9,7 +9,7 @@
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-color: #f0f2f5;
     color: #333;
     line-height: 1.6;
@@ -130,14 +130,6 @@ table tr:hover {
 .delete-form {
     display: inline-block;
     margin: 0;
-}
-
-.header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
 }
 
 /* ── Cards / Forms ─────────────────────────── */
@@ -300,24 +292,6 @@ table tr:hover {
     background-color: #fff3cd;
     color: #856404;
     border: 1px solid #ffeeba;
-}
-
-/* ── Student Detail View ───────────────────── */
-
-.detail-grid {
-    display: grid;
-    grid-template-columns: 140px 1fr;
-    gap: 12px 20px;
-    font-size: 0.95rem;
-}
-
-.detail-grid dt {
-    font-weight: 600;
-    color: #555;
-}
-
-.detail-grid dd {
-    margin: 0;
 }
 
 /* ── Search Box ────────────────────────────── */
@@ -777,11 +751,31 @@ table tr:hover {
     }
 
     .portal-feature-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
     }
 
     .portal-feature-divider {
         display: none;
+    }
+
+    .portal-feature-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 11px;
+    }
+
+    .portal-feature-icon svg {
+        width: 25px;
+        height: 25px;
+    }
+
+    .portal-feature strong {
+        font-size: 0.72rem;
+    }
+
+    .portal-feature small {
+        font-size: 0.58rem;
     }
 
     .login-modal-card {
@@ -909,39 +903,6 @@ table tr:hover {
 
 .illness-age {
     width: 55px;
-}
-
-/* ── Wider Detail Grid ─────────────────────── */
-
-.detail-grid-wide {
-    grid-template-columns: 160px 1fr;
-}
-
-/* ── Compact Table ─────────────────────────── */
-
-.compact-table {
-    margin-top: 10px;
-    box-shadow: none;
-    border: 1px solid #e2e8f0;
-}
-
-.compact-table th {
-    font-size: 0.8rem;
-    padding: 8px 12px;
-}
-
-.compact-table td {
-    padding: 8px 12px;
-    font-size: 0.9rem;
-}
-
-/* ── Empty State ───────────────────────────── */
-
-.empty-state {
-    text-align: center;
-    padding: 50px 20px;
-    color: #888;
-    font-size: 1rem;
 }
 
 /* ── Real-time Chat ────────────────────────── */
@@ -1118,6 +1079,10 @@ table tr:hover {
 
 .chat-mine .chat-meta {
     color: rgba(255, 255, 255, 0.85);
+}
+
+.chat-pending {
+    opacity: 0.72;
 }
 
 .chat-theirs {
@@ -1455,11 +1420,36 @@ table tr:hover {
         overflow: auto;
     }
 
+    .student-messages-body .student-sidebar {
+        position: static;
+        width: 100%;
+        min-height: auto;
+    }
+
     .student-messages-body .student-dashboard-main {
         position: static;
+        margin-left: 0;
         height: auto;
         min-height: 100vh;
         overflow: visible;
+    }
+
+    .student-messages-body .student-sidebar-footer {
+        display: none;
+    }
+
+    .student-messages-body .student-sidebar-nav {
+        display: none;
+        overflow-x: auto;
+        padding: 0;
+    }
+
+    .student-messages-body .student-sidebar.is-nav-open .student-sidebar-nav {
+        display: grid;
+    }
+
+    .student-messages-body .student-sidebar-nav a {
+        flex: 0 0 auto;
     }
 
     .student-messages-body .student-dashboard-content {
@@ -1507,6 +1497,20 @@ table tr:hover {
     color: #fff;
 }
 
+.student-sidebar-brand-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    color: inherit;
+    text-decoration: none;
+}
+
+.student-sidebar-brand-link:hover {
+    color: inherit;
+    text-decoration: none;
+}
+
 .student-sidebar-brand img {
     width: 46px;
     height: 46px;
@@ -1514,6 +1518,14 @@ table tr:hover {
     object-fit: contain;
     background: rgba(255, 255, 255, 0.08);
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+.student-mobile-nav-toggle {
+    display: none;
+}
+
+.student-mobile-only {
+    display: none !important;
 }
 
 .student-sidebar-nav {
@@ -1655,7 +1667,12 @@ table tr:hover {
     color: #5b7a60;
 }
 
+.notification-menu {
+    position: relative;
+}
+
 .student-notification {
+    position: relative;
     width: 34px;
     height: 34px;
     display: inline-flex;
@@ -1664,6 +1681,84 @@ table tr:hover {
     border-radius: 50%;
     background: #f3faf4;
     color: #0b4a1c;
+    border: 0;
+    cursor: pointer;
+}
+
+.student-notification .notification-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #811523;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
+
+.notification-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: min(320px, calc(100vw - 32px));
+    max-height: 360px;
+    overflow-y: auto;
+    display: none;
+    padding: 14px;
+    border: 1px solid #e6eee6;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(6, 66, 22, 0.14);
+    z-index: 100;
+}
+
+.notification-menu.is-open .notification-dropdown {
+    display: block;
+}
+
+.notification-dropdown > strong {
+    display: block;
+    margin-bottom: 10px;
+    color: #0b5a1c;
+    font-size: 0.9rem;
+}
+
+.notification-dropdown a,
+.notification-dropdown p {
+    display: block;
+    margin: 0;
+    padding: 10px;
+    border-radius: 10px;
+    color: #315f38;
+    text-decoration: none;
+}
+
+.notification-dropdown a:hover {
+    background: #eef8ef;
+    text-decoration: none;
+}
+
+.notification-dropdown a.is-unread {
+    background: #f3faf4;
+}
+
+.notification-dropdown a span {
+    display: block;
+    color: #174f25;
+    font-weight: 800;
+}
+
+.notification-dropdown a small {
+    display: block;
+    margin-top: 3px;
+    color: #69736b;
+    font-size: 0.75rem;
 }
 
 .student-dashboard-content {
@@ -2181,30 +2276,6 @@ table tr:hover {
 }
 
 @media (max-width: 1100px) {
-    .student-sidebar {
-        position: static;
-        width: 100%;
-        min-height: auto;
-    }
-
-    .student-dashboard-main {
-        margin-left: 0;
-    }
-
-    .student-sidebar-footer {
-        display: none;
-    }
-
-    .student-sidebar-nav {
-        display: flex;
-        overflow-x: auto;
-        padding: 0;
-    }
-
-    .student-sidebar-nav a {
-        flex: 0 0 auto;
-    }
-
     .student-dashboard-grid,
     .student-stat-grid {
         grid-template-columns: 1fr;
@@ -2231,17 +2302,8 @@ table tr:hover {
     color: #22a745;
 }
 
-.dashboard-add-btn {
-    display: block;
-    width: 100%;
-    text-align: center;
-    margin-top: auto;
-    background: #065316;
-    padding: 10px 18px;
-}
-
-.dashboard-add-btn:hover {
-    opacity: 0.88;
+.admin-dashboard-main-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(220px, 0.8fr);
 }
 
 .admin-full-panel {
@@ -2280,6 +2342,90 @@ table tr:hover {
 .admin-card-actions time {
     flex-basis: 100%;
     margin-bottom: 4px;
+}
+
+.appointment-filter-row,
+.appointment-card-list {
+    display: grid;
+    gap: 12px;
+}
+
+.appointment-filter-row {
+    grid-template-columns: repeat(auto-fit, minmax(110px, max-content));
+    margin-bottom: 18px;
+}
+
+.appointment-filter-pending {
+    background: #d8a21d;
+}
+
+.appointment-filter-approved {
+    background: #27ae60;
+}
+
+.appointment-filter-declined {
+    background: #7f1d1d;
+}
+
+.appointment-filter-completed {
+    background: #0891b2;
+}
+
+.appointment-filter-cancelled {
+    background: #dc2626;
+}
+
+.appointment-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+    gap: 18px;
+    align-items: start;
+    padding: 18px;
+    border: 1px solid #e6eee6;
+    border-radius: 14px;
+    background: #fbfcfb;
+}
+
+.appointment-card h3 {
+    margin: 0 0 8px;
+    color: #255d2f;
+    font-size: 1rem;
+}
+
+.appointment-card p {
+    color: #3a914b;
+    line-height: 1.45;
+}
+
+.appointment-card small {
+    display: block;
+    margin-top: 8px;
+    color: #7b8b7e;
+}
+
+.appointment-status-form {
+    display: grid;
+    gap: 8px;
+    min-width: 180px;
+}
+
+.appointment-status-form select,
+.appointment-status-form textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font: inherit;
+}
+
+.clinic-visit-panel {
+    margin-top: 22px;
+}
+
+.clinic-visit-form {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 22px;
 }
 
 .admin-chat-card {
@@ -2349,11 +2495,63 @@ table tr:hover {
 }
 
 .admin-dashboard-page .chat-main-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
     border-bottom-color: #e6eee6;
 }
 
 .admin-dashboard-page .chat-main-header h2 {
     color: #111;
+}
+
+.admin-chat-back {
+    display: none;
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #eef8ef;
+    color: #0b5a1c;
+    font-size: 0.84rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.admin-chat-back:hover {
+    text-decoration: none;
+    background: #d9f5df;
+}
+
+.chat-status-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.chat-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #d9f5df;
+    color: #0b5a1c;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.chat-status-mini {
+    display: inline-flex;
+    margin: 6px 0 0 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #d9f5df;
+    color: #0b5a1c;
+    font-size: 0.7rem;
+    font-weight: 800;
 }
 
 .admin-dashboard-page .chat-layout {
@@ -2426,8 +2624,16 @@ table tr:hover {
 .admin-dashboard-table .btn-info,
 .admin-dashboard-table .btn-warning,
 .admin-dashboard-table .btn-danger {
+    min-width: 68px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 7px;
     background: #0f7a2d;
     color: #fff;
+    line-height: 1;
 }
 
 .admin-dashboard-table .btn-warning {
@@ -2435,9 +2641,575 @@ table tr:hover {
 }
 
 .admin-dashboard-table .btn-danger {
-    background: #2f6f3f;
+    background: #7f1d1d;
 }
 
 .admin-dashboard-table .btn:hover {
     opacity: 0.9;
+}
+
+/* ── Responsive Accessibility Pass ─────────── */
+
+:focus-visible {
+    outline: 3px solid rgba(20, 129, 43, 0.35);
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
+
+@media (max-width: 900px) {
+    table {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    table thead,
+    table tbody,
+    table tr {
+        min-width: max-content;
+    }
+
+    .admin-dashboard-table {
+        min-width: 760px;
+    }
+
+    .patient-records-page {
+        width: 100%;
+    }
+
+    .clinic-paper-form,
+    .consent-paper-inner {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .paper-table {
+        min-width: 720px;
+    }
+
+    .consent-line {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .consent-signature {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 760px) {
+    body {
+        font-size: 15px;
+    }
+
+    .container {
+        margin: 18px auto;
+        padding: 0 14px;
+    }
+
+    .card {
+        padding: 20px;
+        border-radius: 14px;
+    }
+
+    .btn,
+    button,
+    input,
+    select,
+    textarea {
+        min-height: 44px;
+    }
+
+    .actions {
+        white-space: normal;
+    }
+
+    .actions .btn,
+    .actions .delete-form {
+        margin: 4px 4px 4px 0;
+    }
+
+    .portal-login-shell {
+        min-height: 100vh;
+    }
+
+    .portal-brand-panel {
+        min-height: auto;
+    }
+
+    .login-modal {
+        align-items: flex-start;
+        overflow-y: auto;
+        padding: 14px;
+    }
+
+    .login-modal-card {
+        width: 100%;
+        min-height: auto;
+        padding: 64px 22px 28px;
+        border-radius: 16px;
+    }
+
+    .login-modal-card h2 {
+        margin-bottom: 48px;
+        font-size: 1.15rem;
+    }
+
+    .modal-login-alert {
+        margin: -28px 0 20px;
+    }
+
+    .student-dashboard-content {
+        padding: 24px 16px 20px;
+    }
+
+    .student-sidebar {
+        position: sticky;
+        inset: auto;
+        top: 0;
+        width: 100%;
+        min-height: auto;
+        z-index: 50;
+        box-shadow: 0 8px 18px rgba(6, 66, 22, 0.18);
+    }
+
+    .student-dashboard-main {
+        margin-left: 0;
+    }
+
+    .student-sidebar-footer {
+        display: none;
+    }
+
+    .student-sidebar-brand {
+        height: 74px;
+        padding: 0 16px;
+        justify-content: space-between;
+    }
+
+    .student-sidebar-brand img {
+        width: 42px;
+        height: 42px;
+    }
+
+    .student-sidebar-brand > span {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .student-sidebar-brand-link {
+        flex: 1;
+    }
+
+    .student-mobile-nav-toggle {
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        font: inherit;
+        font-size: 0.86rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .student-sidebar-nav {
+        display: none;
+        grid-template-columns: 1fr;
+        max-height: calc(100vh - 74px);
+        overflow-y: auto;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        background: #064216;
+    }
+
+    .student-sidebar.is-nav-open .student-sidebar-nav {
+        display: grid;
+    }
+
+    .student-sidebar-nav a {
+        width: 100%;
+        min-height: 52px;
+        padding: 14px 18px;
+        border-left: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .student-mobile-only {
+        display: flex !important;
+    }
+
+    .student-dashboard-content > h1,
+    .admin-dashboard-page .student-dashboard-content > h1 {
+        font-size: 1.35rem;
+    }
+
+    .student-stat-grid {
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+
+    .student-stat-card {
+        min-height: auto;
+        padding: 18px;
+    }
+
+    .student-stat-card strong {
+        font-size: 2rem;
+    }
+
+    .student-dashboard-grid {
+        gap: 16px;
+    }
+
+    .student-announcements-panel,
+    .student-side-card {
+        min-height: auto;
+        padding: 20px;
+    }
+
+    .dashboard-section-title {
+        align-items: flex-start;
+        margin-bottom: 16px;
+    }
+
+    .dashboard-announcement-item,
+    .admin-announcement-item {
+        grid-template-columns: 44px minmax(0, 1fr);
+        gap: 12px;
+        align-items: flex-start;
+    }
+
+    .dashboard-announcement-item time,
+    .admin-card-actions {
+        grid-column: 2;
+        text-align: left;
+        justify-content: flex-start;
+    }
+
+    .announcement-round-icon,
+    .health-row span {
+        width: 40px;
+        height: 40px;
+        padding: 9px;
+    }
+
+    .queue-card-dashboard > strong {
+        font-size: 3.6rem;
+        margin: 14px 0;
+    }
+
+    .admin-panel-action {
+        width: 100%;
+        margin-left: 0;
+        text-align: center;
+    }
+
+    .appointment-card {
+        grid-template-columns: 1fr;
+    }
+
+    .appointment-filter-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .chat-status-form {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .admin-dashboard-table {
+        display: block;
+        min-width: 0;
+        border: 0;
+        background: transparent;
+    }
+
+    .admin-dashboard-table thead {
+        display: none;
+    }
+
+    .admin-dashboard-table,
+    .admin-dashboard-table tbody,
+    .admin-dashboard-table tr,
+    .admin-dashboard-table td {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .admin-dashboard-table tbody,
+    .admin-dashboard-table tr,
+    .admin-dashboard-table td {
+        display: block;
+    }
+
+    .admin-dashboard-table tr {
+        margin-bottom: 14px;
+        padding: 14px;
+        border: 1px solid #e6eee6;
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 6px 18px rgba(6, 66, 22, 0.07);
+    }
+
+    .admin-dashboard-table tr:nth-child(even),
+    .admin-dashboard-table tr:hover {
+        background: #fff;
+    }
+
+    .admin-dashboard-table td {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 9px 0;
+        border-bottom: 1px solid #eef4ee;
+        color: #0f3f1a;
+        text-align: right;
+        word-break: break-word;
+    }
+
+    .admin-dashboard-table td::before {
+        content: attr(data-label);
+        flex: 0 0 92px;
+        color: #5b7a60;
+        font-size: 0.75rem;
+        font-weight: 800;
+        text-align: left;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .admin-dashboard-table td:last-child {
+        border-bottom: 0;
+    }
+
+    .admin-dashboard-table td.actions {
+        display: block;
+        text-align: left;
+    }
+
+    .admin-dashboard-table td.actions::before {
+        display: block;
+        margin-bottom: 8px;
+    }
+
+    .admin-dashboard-table .actions .btn,
+    .admin-dashboard-table .actions .delete-form {
+        display: inline-block;
+        margin: 4px 4px 4px 0;
+    }
+
+    .admin-dashboard-table .actions {
+        display: flex !important;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .admin-dashboard-table .actions .btn,
+    .admin-dashboard-table .actions button {
+        min-width: 72px;
+        height: 44px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .admin-dashboard-table .actions .delete-form {
+        display: inline-flex;
+        margin: 0;
+    }
+
+    .admin-dashboard-table .actions .btn-info,
+    .admin-dashboard-table .actions .btn-warning,
+    .admin-dashboard-table .actions .btn-danger {
+        background: #0f7a2d;
+    }
+
+    .admin-dashboard-table .actions .btn-danger {
+        background: #7f1d1d;
+    }
+
+    .patient-records-actions {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .patient-records-actions > div {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .paper-download-btn {
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+    }
+
+    .clinic-paper-form {
+        padding: 22px 18px 28px;
+    }
+
+    .consent-paper-inner {
+        min-height: 0;
+        padding: 30px 22px;
+    }
+
+    .consent-upload-box {
+        width: 100%;
+        max-width: 320px;
+        flex-basis: 100%;
+    }
+
+    .student-messages-body .student-dashboard-content {
+        padding: 16px;
+    }
+
+    .student-messages-header,
+    .admin-dashboard-page .student-messages-header {
+        max-width: none;
+        display: block;
+    }
+
+    .admin-dashboard-page .admin-chat-contact,
+    .student-chat-contact {
+        margin-top: 12px;
+    }
+
+    .chat-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-dashboard-page .admin-chat-card.has-selected-chat .chat-sidebar {
+        display: none;
+    }
+
+    .admin-dashboard-page .admin-chat-card.is-conversation-list .chat-main {
+        display: none;
+    }
+
+    .admin-dashboard-page .admin-chat-back {
+        display: inline-flex;
+    }
+
+    .admin-dashboard-page .admin-chat-card {
+        margin-top: 14px;
+    }
+
+    .chat-sidebar {
+        max-height: 190px;
+        overflow-y: auto;
+        border-right: 0;
+        border-bottom: 1px solid #e6eee6;
+    }
+
+    .student-chat-stage,
+    .student-chat-app,
+    .admin-chat-app {
+        min-height: 520px;
+    }
+
+    .student-chat-messages,
+    .admin-chat-messages {
+        padding: 14px 12px;
+    }
+
+    .chat-bubble {
+        max-width: 88%;
+    }
+
+    .student-chat-compose {
+        margin-left: 0;
+        margin-right: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 1.45rem;
+    }
+
+    h2 {
+        font-size: 1.12rem;
+    }
+
+    .student-sidebar-brand {
+        height: 74px;
+        padding: 0 16px;
+    }
+
+    .student-sidebar-brand img {
+        width: 38px;
+        height: 38px;
+    }
+
+    .student-sidebar-nav a {
+        padding: 12px 16px;
+        font-size: 0.84rem;
+    }
+
+    .student-dashboard-topbar {
+        height: auto;
+        min-height: 56px;
+        padding: 12px 16px;
+        gap: 12px;
+    }
+
+    .student-breadcrumb {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .portal-actions-panel,
+    .portal-brand-panel {
+        padding: 28px 16px;
+    }
+
+    .portal-action-card {
+        padding: 16px;
+    }
+
+    .portal-logo {
+        width: 160px;
+        height: 160px;
+    }
+
+    .modal-login-options {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .health-row {
+        align-items: flex-start;
+    }
+
+    .dashboard-announcement-item time small {
+        display: inline;
+        margin-left: 6px;
+    }
+
+    .chat-bubble {
+        max-width: 94%;
+        font-size: 0.86rem;
+    }
+
+    .student-chat-compose {
+        padding: 4px 10px;
+    }
 }

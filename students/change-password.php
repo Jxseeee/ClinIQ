@@ -49,10 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Change Password</title>
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page">
+<body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="dashboard-content-card dashboard-narrow-card">
         <h1>Change Your Password</h1>

@@ -9,6 +9,21 @@ if (!$id) { header("Location: ../../public/index.php"); exit; }
 $data = fetchStudentFullProfile($pdo, (int)$id);
 if (!$data) { header("Location: ../../public/index.php?error=notfound"); exit; }
 
+$visitErrors = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_visit') {
+    verifyCsrfToken();
+
+    if (trim($_POST['complaint'] ?? '') === '') {
+        $visitErrors[] = 'Complaint is required.';
+    }
+
+    if (empty($visitErrors)) {
+        createClinicVisit($pdo, (int) $id, (int) $_SESSION['user_id'], $_POST);
+        header('Location: view-student.php?id=' . urlencode((string) $id) . '&visit=added');
+        exit;
+    }
+}
+
 ['student' => $student, 'g1' => $g1, 'g2' => $g2, 'medHistory' => $medHistory] = $data;
 
 $medMap = [];
@@ -27,6 +42,7 @@ $illnesses = [
 
 $adminPageTitle = 'Student Record';
 $adminContentClass = 'patient-records-content';
+$clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -34,10 +50,11 @@ $adminContentClass = 'patient-records-content';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>View Student</title>
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page admin-dashboard-page">
+<body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
     <div class="patient-records-page">
         <div class="patient-records-actions">
@@ -47,6 +64,20 @@ $adminContentClass = 'patient-records-content';
                 <a href="../../public/index.php" class="btn btn-secondary paper-download-btn">Back to List</a>
             </div>
         </div>
+
+        <?php if (($_GET['visit'] ?? '') === 'added'): ?>
+            <div class="alert alert-success">Clinic visit recorded successfully.</div>
+        <?php endif; ?>
+
+        <?php if (!empty($visitErrors)): ?>
+            <div class="alert alert-danger">
+                <ul style="margin:0; padding-left:18px;">
+                    <?php foreach ($visitErrors as $error): ?>
+                        <li><?= htmlspecialchars($error) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
 
         <section class="clinic-paper-form">
             <div class="paper-section">
@@ -130,6 +161,76 @@ $adminContentClass = 'patient-records-content';
                 </div>
             <?php else: ?>
                 <div class="dashboard-empty admin-consent-empty">No parent or guardian ID has been uploaded.</div>
+            <?php endif; ?>
+        </section>
+
+        <section class="student-announcements-panel admin-full-panel clinic-visit-panel">
+            <div class="dashboard-section-title">
+                <span><?= studentDashboardIcon('records') ?></span>
+                <h2>Clinic Visits</h2>
+            </div>
+
+            <form method="POST" class="clinic-visit-form">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                <input type="hidden" name="action" value="add_visit">
+                <div class="form-row form-row-2">
+                    <div class="form-group">
+                        <label for="complaint">Complaint *</label>
+                        <textarea id="complaint" name="complaint" rows="3" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="vitals">Vitals</label>
+                        <textarea id="vitals" name="vitals" rows="3" placeholder="BP, temperature, pulse, etc."></textarea>
+                    </div>
+                </div>
+                <div class="form-row form-row-2">
+                    <div class="form-group">
+                        <label for="assessment">Assessment</label>
+                        <textarea id="assessment" name="assessment" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="treatment">Treatment</label>
+                        <textarea id="treatment" name="treatment" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="form-row form-row-3">
+                    <div class="form-group">
+                        <label for="status">Status</label>
+                        <select id="status" name="status">
+                            <option value="completed">Completed</option>
+                            <option value="open">Open</option>
+                            <option value="follow-up">Follow-up</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="disposition">Disposition</label>
+                        <input type="text" id="disposition" name="disposition" placeholder="Returned to class, sent home, etc.">
+                    </div>
+                    <div class="form-group">
+                        <label for="follow_up_date">Follow-up Date</label>
+                        <input type="date" id="follow_up_date" name="follow_up_date">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-success">Add Visit</button>
+            </form>
+
+            <?php if (!empty($clinicVisits)): ?>
+                <div class="appointment-card-list">
+                    <?php foreach ($clinicVisits as $visit): ?>
+                        <article class="appointment-card">
+                            <div>
+                                <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
+                                <p><?= htmlspecialchars($visit['Complaint']) ?></p>
+                                <?php if (!empty($visit['Treatment'])): ?>
+                                    <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
+                                <?php endif; ?>
+                            </div>
+                            <strong><?= htmlspecialchars(ucfirst($visit['Status'])) ?></strong>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="dashboard-empty">No clinic visits recorded for this student.</div>
             <?php endif; ?>
         </section>
     </div>

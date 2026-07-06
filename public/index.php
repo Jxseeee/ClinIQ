@@ -11,7 +11,8 @@ $students = $pdo->query(
 
 $totalStudents   = count($students);
 $adminUnread     = countUnreadChatForAdmin($pdo);
-$totalAnnouncements = (int) $pdo->query("SELECT COUNT(*) FROM Announcements")->fetchColumn();
+$pendingAppointments = countAppointments($pdo, 'pending');
+$totalVisits = countClinicVisits($pdo);
 
 cleanupChatPresence($pdo);
 $queueWaiting = (int) $pdo->query("SELECT COUNT(*) FROM ChatQueue")->fetchColumn();
@@ -20,6 +21,7 @@ $estimatedWait = $queueWaiting > 0
     : 'No wait';
 
 $recentStudents = array_slice($students, 0, 5);
+$recentVisits = fetchClinicVisits($pdo, null, 5);
 $adminPageTitle = 'Dashboard';
 ?>
 <!DOCTYPE html>
@@ -28,10 +30,11 @@ $adminPageTitle = 'Dashboard';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/tailwind.css">
+    <link rel="stylesheet" href="assets/css/style.min.css">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page admin-dashboard-page">
+<body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/admin-dashboard-start.php'; ?>
 
         <h1>Welcome, <?= htmlspecialchars($user['name'] ?? 'Admin') ?></h1>
@@ -54,9 +57,27 @@ $adminPageTitle = 'Dashboard';
                 </div>
                 <span class="stat-icon <?= $adminUnread > 0 ? 'pink' : 'admin-stat-blue' ?>"><?= studentDashboardIcon('message') ?></span>
             </article>
+
+            <article class="student-stat-card">
+                <div>
+                    <h2>Pending Appointments</h2>
+                    <strong><?= $pendingAppointments ?></strong>
+                    <small>Needs review</small>
+                </div>
+                <span class="stat-icon admin-stat-blue"><?= studentDashboardIcon('calendar') ?></span>
+            </article>
+
+            <article class="student-stat-card">
+                <div>
+                    <h2>Clinic Visits</h2>
+                    <strong><?= $totalVisits ?></strong>
+                    <small>Recorded</small>
+                </div>
+                <span class="stat-icon green"><?= studentDashboardIcon('records') ?></span>
+            </article>
         </div>
 
-        <div class="student-dashboard-grid">
+        <div class="student-dashboard-grid admin-dashboard-main-grid">
 
             <!-- Recent Students -->
             <section class="student-announcements-panel">
@@ -87,42 +108,6 @@ $adminPageTitle = 'Dashboard';
                 <?php endif; ?>
             </section>
 
-            <!-- Quick Actions -->
-            <section class="student-side-card health-card">
-                <div class="dashboard-section-title">
-                    <span><?= studentDashboardIcon('form') ?></span>
-                    <h2>Quick Actions</h2>
-                </div>
-                <div class="health-row">
-                    <span><?= studentDashboardIcon('plus') ?></span>
-                    <div>
-                        <small>Students</small>
-                        <strong>
-                            <a href="../app/admin/add-student.php" class="admin-action-link">Add New Student</a>
-                        </strong>
-                    </div>
-                </div>
-                <div class="health-row">
-                    <span><?= studentDashboardIcon('megaphone') ?></span>
-                    <div>
-                        <small>Announcements</small>
-                        <strong>
-                            <a href="../app/admin/announcements.php" class="admin-action-link"><?= $totalAnnouncements ?> Total</a>
-                        </strong>
-                    </div>
-                </div>
-                <div class="health-row">
-                    <span><?= studentDashboardIcon('message') ?></span>
-                    <div>
-                        <small>Messages</small>
-                        <strong>
-                            <a href="../app/admin/messages.php" class="admin-action-link"><?= $adminUnread ?> Unread</a>
-                        </strong>
-                    </div>
-                </div>
-                <a href="../app/admin/add-student.php" class="btn btn-success dashboard-add-btn">+ Add Student</a>
-            </section>
-
             <!-- Queue Status -->
             <section class="student-side-card queue-card-dashboard">
                 <div class="dashboard-section-title">
@@ -135,6 +120,33 @@ $adminPageTitle = 'Dashboard';
                 <b><?= htmlspecialchars($estimatedWait) ?></b>
             </section>
         </div>
+
+        <section class="admin-table-section student-announcements-panel">
+            <div class="dashboard-section-title">
+                <span><?= studentDashboardIcon('records') ?></span>
+                <h2>Recent Clinic Visits</h2>
+            </div>
+
+            <?php if (!empty($recentVisits)): ?>
+                <div class="dashboard-announcement-list">
+                    <?php foreach ($recentVisits as $visit): ?>
+                        <article class="dashboard-announcement-item">
+                            <div class="announcement-round-icon"><?= studentDashboardIcon('file') ?></div>
+                            <div>
+                                <h3><?= htmlspecialchars($visit['FirstName'] . ' ' . $visit['LastName']) ?></h3>
+                                <p><?= htmlspecialchars(mb_strimwidth($visit['Complaint'], 0, 120, '...')) ?></p>
+                            </div>
+                            <time datetime="<?= htmlspecialchars($visit['CreatedAt']) ?>">
+                                <?= date('M d, Y', strtotime($visit['CreatedAt'])) ?>
+                                <small><?= htmlspecialchars(ucfirst($visit['Status'])) ?></small>
+                            </time>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="dashboard-empty">No clinic visits recorded yet.</div>
+            <?php endif; ?>
+        </section>
 
         <!-- Full Student Table -->
         <section id="all-students" class="admin-table-section student-announcements-panel">
@@ -188,12 +200,12 @@ $adminPageTitle = 'Dashboard';
                     <tbody>
                         <?php foreach ($students as $s): ?>
                         <tr>
-                            <td><?= htmlspecialchars($s['StudentID']) ?></td>
-                            <td><?= htmlspecialchars($s['FirstName']) ?></td>
-                            <td><?= htmlspecialchars($s['LastName']) ?></td>
-                            <td><?= htmlspecialchars($s['Email'] ?? '—') ?></td>
-                            <td><?= htmlspecialchars($s['Phone'] ?? '—') ?></td>
-                            <td class="actions">
+                            <td data-label="#"><?= htmlspecialchars($s['StudentID']) ?></td>
+                            <td data-label="First Name"><?= htmlspecialchars($s['FirstName']) ?></td>
+                            <td data-label="Last Name"><?= htmlspecialchars($s['LastName']) ?></td>
+                            <td data-label="Email"><?= htmlspecialchars($s['Email'] ?? '—') ?></td>
+                            <td data-label="Phone"><?= htmlspecialchars($s['Phone'] ?? '—') ?></td>
+                            <td data-label="Actions" class="actions">
                                 <a href="../app/admin/view-student.php?id=<?= $s['StudentID'] ?>" class="btn btn-info">View</a>
                                 <a href="../app/admin/edit-student.php?id=<?= $s['StudentID'] ?>" class="btn btn-warning">Edit</a>
                                 <form method="POST" action="../app/admin/delete-student.php" class="delete-form">

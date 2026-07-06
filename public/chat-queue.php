@@ -27,10 +27,11 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat Queue</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/tailwind.css">
+    <link rel="stylesheet" href="assets/css/style.min.css">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
-<body>
+<body class="antialiased selection:bg-green-200 selection:text-green-950">
     <div class="login-wrapper">
         <div class="login-card queue-card"
              id="chat-queue"

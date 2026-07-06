@@ -17,7 +17,7 @@ $apiBase = $basePath . '/app/api';
 $pusher = pusherPublicConfig();
 $studentPageTitle = 'Messages';
 $studentContentClass = 'student-message-content';
-$studentBreadcrumbTrail = ['Dashboard', 'Reports', 'Patient Records', 'Messages'];
+$studentBreadcrumbTrail = ['Dashboard'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -25,10 +25,11 @@ $studentBreadcrumbTrail = ['Dashboard', 'Reports', 'Patient Records', 'Messages'
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messages</title>
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page student-messages-body">
+<body class="student-dashboard-page student-messages-body antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="student-messages-page">
         <div class="student-messages-header">
