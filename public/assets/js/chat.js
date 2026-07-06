@@ -94,13 +94,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function appendMessage(msg, shouldScroll) {
-        if (!msg || seenIds.has(msg.message_id)) return;
+        if (!msg || seenIds.has(msg.message_id)) return false;
         seenIds.add(msg.message_id);
         removeEmptyState();
 
         var bubble = document.createElement('div');
         var isMine = msg.sender_role === config.role;
-        bubble.className = 'chat-bubble ' + (isMine ? 'chat-mine' : 'chat-theirs');
+        bubble.className = 'chat-bubble ' + (isMine ? 'chat-mine' : 'chat-theirs') + (msg.is_pending ? ' chat-pending' : '');
         bubble.dataset.messageId = msg.message_id;
         bubble.innerHTML =
             '<div class="chat-meta">' + escapeHtml(msg.sender_name) +
@@ -109,6 +109,32 @@ document.addEventListener('DOMContentLoaded', function () {
 
         list.appendChild(bubble);
         if (shouldScroll !== false) scrollToBottom();
+        return true;
+    }
+
+    function refreshMessages() {
+        if (!config.apiBase) return;
+
+        var url = config.apiBase + '/chat.php';
+        if (config.role === 'admin' && config.studentId) {
+            url += '?student_id=' + encodeURIComponent(config.studentId);
+        }
+
+        fetch(url, { credentials: 'same-origin' })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (!data.messages) return;
+
+                var added = false;
+                data.messages.forEach(function (msg) {
+                    if (appendMessage(msg, false)) {
+                        added = true;
+                    }
+                });
+
+                if (added) scrollToBottom();
+            })
+            .catch(function () { /* polling retries automatically */ });
     }
 
     if (input && form) {
@@ -128,6 +154,19 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (sendBtn) sendBtn.disabled = true;
 
+            var pendingId = 'pending-' + Date.now();
+            var pendingMessage = {
+                message_id: pendingId,
+                sender_role: config.role,
+                sender_name: 'You',
+                content: content,
+                created_at: new Date().toISOString(),
+                is_pending: true
+            };
+
+            appendMessage(pendingMessage);
+            input.value = '';
+
             var body = new FormData();
             body.append('content', content);
             body.append('csrf_token', config.csrf);
@@ -140,16 +179,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 body: body,
                 credentials: 'same-origin'
             })
-                .then(function (res) { return res.json(); })
+                .then(function (res) {
+                    return res.json().catch(function () {
+                        throw new Error('Invalid chat server response.');
+                    });
+                })
                 .then(function (data) {
+                    var pendingBubble = list.querySelector('[data-message-id="' + pendingId + '"]');
+                    if (pendingBubble) pendingBubble.remove();
+                    seenIds.delete(pendingId);
+
                     if (data.error) {
+                        input.value = content;
                         alert(data.error);
                         return;
                     }
                     appendMessage(data.message);
-                    input.value = '';
                 })
                 .catch(function () {
+                    var pendingBubble = list.querySelector('[data-message-id="' + pendingId + '"]');
+                    if (pendingBubble) pendingBubble.remove();
+                    seenIds.delete(pendingId);
+                    input.value = content;
                     alert('Failed to send message. Please try again.');
                 })
                 .finally(function () {
@@ -158,6 +209,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
         });
     }
+
+    setInterval(refreshMessages, 1000);
 
     window.refreshChatThreads = function () {
         fetch(config.apiBase + '/chat.php?action=threads', { credentials: 'same-origin' })
@@ -177,6 +230,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     var badge = unread > 0
                         ? '<span class="chat-unread-badge">' + unread + '</span>'
                         : '';
+                    var status = t.ConversationStatus
+                        ? '<span class="chat-status-mini">' + escapeHtml(t.ConversationStatus.charAt(0).toUpperCase() + t.ConversationStatus.slice(1)) + '</span>'
+                        : '';
                     var active = String(t.StudentID) === String(activeId) ? ' active' : '';
 
                     return '<li><a href="messages.php?student_id=' + t.StudentID + '"' +
@@ -184,6 +240,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         '<span class="chat-thread-name">' + escapeHtml(t.FirstName + ' ' + t.LastName) +
                         ' <small>#' + t.StudentID + '</small></span>' +
                         badge +
+                        status +
                         (preview ? '<span class="chat-thread-preview">' + preview + '</span>' : '') +
                         '</a></li>';
                 }).join('');

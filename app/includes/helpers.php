@@ -44,6 +44,296 @@ function fetchAnnouncements(PDO $pdo): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function databaseTableExists(PDO $pdo, string $table): bool
+{
+    static $cache = [];
+
+    if (array_key_exists($table, $cache)) {
+        return $cache[$table];
+    }
+
+    try {
+        $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
+        $stmt->execute([$table]);
+        $cache[$table] = (bool) $stmt->fetchColumn();
+    } catch (PDOException $e) {
+        $cache[$table] = false;
+    }
+
+    return $cache[$table];
+}
+
+function createNotification(PDO $pdo, string $targetRole, ?int $targetUserId, string $type, string $title, string $body = '', string $link = ''): void
+{
+    if (!databaseTableExists($pdo, 'Notifications')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO Notifications (TargetRole, TargetUserID, Type, Title, Body, Link) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->execute([$targetRole, $targetUserId, $type, $title, $body ?: null, $link ?: null]);
+}
+
+function countUnreadNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = null): int
+{
+    if (!databaseTableExists($pdo, 'Notifications')) {
+        return 0;
+    }
+
+    if ($targetRole === 'admin') {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM Notifications WHERE TargetRole = 'admin' AND IsRead = 0");
+        $stmt->execute();
+    } else {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM Notifications WHERE TargetRole = 'student' AND TargetUserID = ? AND IsRead = 0");
+        $stmt->execute([$targetUserId]);
+    }
+    return (int) $stmt->fetchColumn();
+}
+
+function fetchNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = null, int $limit = 8): array
+{
+    if (!databaseTableExists($pdo, 'Notifications')) {
+        return [];
+    }
+
+    if ($targetRole === 'admin') {
+        $stmt = $pdo->prepare(
+            "SELECT * FROM Notifications
+             WHERE TargetRole = 'admin'
+             ORDER BY CreatedAt DESC
+             LIMIT " . (int) $limit
+        );
+        $stmt->execute();
+    } else {
+        $stmt = $pdo->prepare(
+            "SELECT * FROM Notifications
+             WHERE TargetRole = 'student' AND TargetUserID = ?
+             ORDER BY CreatedAt DESC
+             LIMIT " . (int) $limit
+        );
+        $stmt->execute([$targetUserId]);
+    }
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function markNotificationsRead(PDO $pdo, string $targetRole, ?int $targetUserId = null): void
+{
+    if (!databaseTableExists($pdo, 'Notifications')) {
+        return;
+    }
+
+    if ($targetRole === 'admin') {
+        $stmt = $pdo->prepare("UPDATE Notifications SET IsRead = 1 WHERE TargetRole = 'admin' AND IsRead = 0");
+        $stmt->execute();
+    } else {
+        $stmt = $pdo->prepare("UPDATE Notifications SET IsRead = 1 WHERE TargetRole = 'student' AND TargetUserID = ? AND IsRead = 0");
+        $stmt->execute([$targetUserId]);
+    }
+}
+
+function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0): array
+{
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return [];
+    }
+
+    $sql = "SELECT v.*, s.FirstName, s.LastName, a.FullName AS AdminName
+            FROM ClinicVisits v
+            JOIN Students s ON s.StudentID = v.StudentID
+            LEFT JOIN Admins a ON a.AdminID = v.AdminID";
+    $params = [];
+
+    if ($studentId !== null) {
+        $sql .= " WHERE v.StudentID = ?";
+        $params[] = $studentId;
+    }
+
+    $sql .= " ORDER BY v.CreatedAt DESC";
+    if ($limit > 0) {
+        $sql .= " LIMIT " . (int) $limit;
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function createClinicVisit(PDO $pdo, int $studentId, int $adminId, array $data): void
+{
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO ClinicVisits
+         (StudentID, AdminID, Complaint, Vitals, Assessment, Treatment, Status, Disposition, FollowUpDate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->execute([
+        $studentId,
+        $adminId,
+        trim($data['complaint'] ?? ''),
+        trim($data['vitals'] ?? '') ?: null,
+        trim($data['assessment'] ?? '') ?: null,
+        trim($data['treatment'] ?? '') ?: null,
+        $data['status'] ?? 'completed',
+        trim($data['disposition'] ?? '') ?: null,
+        trim($data['follow_up_date'] ?? '') ?: null,
+    ]);
+
+    createNotification(
+        $pdo,
+        'student',
+        $studentId,
+        'clinic_visit',
+        'Clinic visit recorded',
+        'Your clinic visit record has been updated.',
+        getBasePath() . '/students/profile.php'
+    );
+}
+
+function countClinicVisits(PDO $pdo): int
+{
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return 0;
+    }
+
+    return (int) $pdo->query("SELECT COUNT(*) FROM ClinicVisits")->fetchColumn();
+}
+
+function fetchAppointments(PDO $pdo, ?string $status = null, ?int $studentId = null): array
+{
+    if (!databaseTableExists($pdo, 'Appointments')) {
+        return [];
+    }
+
+    $sql = "SELECT ap.*, s.FirstName, s.LastName, a.FullName AS AdminName
+            FROM Appointments ap
+            JOIN Students s ON s.StudentID = ap.StudentID
+            LEFT JOIN Admins a ON a.AdminID = ap.HandledByAdminID";
+    $where = [];
+    $params = [];
+
+    if ($status !== null) {
+        $where[] = 'ap.Status = ?';
+        $params[] = $status;
+    }
+    if ($studentId !== null) {
+        $where[] = 'ap.StudentID = ?';
+        $params[] = $studentId;
+    }
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+
+    $sql .= " ORDER BY ap.RequestedFor DESC, ap.CreatedAt DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function countAppointments(PDO $pdo, string $status): int
+{
+    if (!databaseTableExists($pdo, 'Appointments')) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM Appointments WHERE Status = ?");
+    $stmt->execute([$status]);
+    return (int) $stmt->fetchColumn();
+}
+
+function createAppointment(PDO $pdo, int $studentId, string $requestedFor, string $reason): void
+{
+    if (!databaseTableExists($pdo, 'Appointments')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO Appointments (StudentID, RequestedFor, Reason) VALUES (?, ?, ?)"
+    );
+    $stmt->execute([$studentId, $requestedFor, $reason]);
+
+    createNotification(
+        $pdo,
+        'admin',
+        null,
+        'appointment',
+        'New appointment request',
+        'A student requested a clinic appointment.',
+        getBasePath() . '/app/admin/appointments.php'
+    );
+}
+
+function updateAppointmentStatus(PDO $pdo, int $appointmentId, string $status, int $adminId, string $notes = ''): void
+{
+    if (!databaseTableExists($pdo, 'Appointments')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "UPDATE Appointments SET Status = ?, AdminNotes = ?, HandledByAdminID = ? WHERE AppointmentID = ?"
+    );
+    $stmt->execute([$status, $notes ?: null, $adminId, $appointmentId]);
+
+    $stmt = $pdo->prepare("SELECT StudentID FROM Appointments WHERE AppointmentID = ?");
+    $stmt->execute([$appointmentId]);
+    $studentId = (int) $stmt->fetchColumn();
+
+    if ($studentId > 0) {
+        createNotification(
+            $pdo,
+            'student',
+            $studentId,
+            'appointment',
+            'Appointment ' . $status,
+            'Your clinic appointment request was marked as ' . $status . '.',
+            getBasePath() . '/students/appointments.php'
+        );
+    }
+}
+
+function ensureChatConversation(PDO $pdo, int $studentId): void
+{
+    if (!databaseTableExists($pdo, 'ChatConversations')) {
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        "INSERT IGNORE INTO ChatConversations (StudentID, Status, LastMessageAt) VALUES (?, 'open', NOW())"
+    );
+    $stmt->execute([$studentId]);
+}
+
+function fetchChatConversation(PDO $pdo, int $studentId): array
+{
+    if (!databaseTableExists($pdo, 'ChatConversations')) {
+        return ['Status' => 'open'];
+    }
+
+    ensureChatConversation($pdo, $studentId);
+    $stmt = $pdo->prepare("SELECT * FROM ChatConversations WHERE StudentID = ?");
+    $stmt->execute([$studentId]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['Status' => 'open'];
+}
+
+function updateChatConversationStatus(PDO $pdo, int $studentId, string $status, ?int $adminId = null): void
+{
+    if (!databaseTableExists($pdo, 'ChatConversations')) {
+        return;
+    }
+
+    ensureChatConversation($pdo, $studentId);
+    $stmt = $pdo->prepare(
+        "UPDATE ChatConversations
+         SET Status = ?, ResolvedAt = IF(? = 'resolved', NOW(), NULL), ResolvedByAdminID = IF(? = 'resolved', ?, NULL)
+         WHERE StudentID = ?"
+    );
+    $stmt->execute([$status, $status, $status, $adminId, $studentId]);
+}
+
 function validateEmail(string $email, array &$errors): void
 {
     $allowed_domain = 'university.edu.ph';
@@ -117,10 +407,43 @@ function markChatMessagesRead(PDO $pdo, int $studentId, string $readerRole): voi
 
 function sendChatMessage(PDO $pdo, int $studentId, string $senderRole, ?int $adminId, string $content): array
 {
+    ensureChatConversation($pdo, $studentId);
+
     $stmt = $pdo->prepare(
         "INSERT INTO Messages (StudentID, SenderRole, AdminID, Content) VALUES (?, ?, ?, ?)"
     );
     $stmt->execute([$studentId, $senderRole, $adminId, $content]);
+
+    if (databaseTableExists($pdo, 'ChatConversations')) {
+        $stmt = $pdo->prepare(
+            "UPDATE ChatConversations
+             SET Status = 'open', LastMessageAt = NOW(), ResolvedAt = NULL, ResolvedByAdminID = NULL
+             WHERE StudentID = ?"
+        );
+        $stmt->execute([$studentId]);
+    }
+
+    if ($senderRole === 'student') {
+        createNotification(
+            $pdo,
+            'admin',
+            null,
+            'chat',
+            'New student message',
+            'A student sent a new clinic message.',
+            getBasePath() . '/app/admin/messages.php?student_id=' . $studentId
+        );
+    } else {
+        createNotification(
+            $pdo,
+            'student',
+            $studentId,
+            'chat',
+            'New clinic message',
+            'The clinic admin sent you a message.',
+            getBasePath() . '/students/messages.php'
+        );
+    }
 
     $messageId = (int) $pdo->lastInsertId();
     $stmt = $pdo->prepare(
@@ -136,16 +459,23 @@ function sendChatMessage(PDO $pdo, int $studentId, string $senderRole, ?int $adm
 
 function fetchChatThreads(PDO $pdo): array
 {
+    $hasConversations = databaseTableExists($pdo, 'ChatConversations');
+    $statusSelect = $hasConversations ? "COALESCE(c.Status, 'open')" : "'open'";
+    $statusJoin = $hasConversations ? "LEFT JOIN ChatConversations c ON c.StudentID = s.StudentID" : "";
+    $statusGroup = $hasConversations ? ", c.Status" : "";
+
     $stmt = $pdo->query(
         "SELECT s.StudentID, s.FirstName, s.LastName,
                 SUM(m.SenderRole = 'student' AND m.IsRead = 0) AS UnreadCount,
                 MAX(m.CreatedAt) AS LastActivity,
+                {$statusSelect} AS ConversationStatus,
                 (SELECT Content FROM Messages m2
                  WHERE m2.StudentID = s.StudentID
                  ORDER BY m2.CreatedAt DESC, m2.MessageID DESC LIMIT 1) AS LastMessage
          FROM Messages m
          JOIN Students s ON s.StudentID = m.StudentID
-         GROUP BY s.StudentID, s.FirstName, s.LastName
+         {$statusJoin}
+         GROUP BY s.StudentID, s.FirstName, s.LastName{$statusGroup}
          ORDER BY LastActivity DESC"
     );
     return $stmt->fetchAll(PDO::FETCH_ASSOC);

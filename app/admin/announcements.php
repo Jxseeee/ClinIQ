@@ -12,10 +12,11 @@ $adminPageTitle = 'Announcements';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Announcements</title>
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page admin-dashboard-page">
+<body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
         <h1>Announcements</h1>
 

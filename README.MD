@@ -7,6 +7,7 @@ A PHP CRUD application with role-based authentication. Admins manage students an
 - PHP 8.0+
 - MySQL / MariaDB
 - Composer
+- Node.js 20+ / npm
 - XAMPP (or equivalent web server)
 - [Pusher](https://pusher.com/) account (free tier) for real-time chat
 
@@ -18,9 +19,20 @@ A PHP CRUD application with role-based authentication. Admins manage students an
 composer install
 ```
 
-2. Create a `.env` file in the project root (use `.env.example` as a template) and configure your database credentials and Pusher keys.
+2. Install frontend tooling and build CSS assets:
 
-3. Import the database schema:
+```bash
+npm install
+npm run assets:build
+```
+
+Use `npm run tailwind:watch` while editing dashboard/message UI classes. Run `npm run css:minify` after editing `public/assets/css/style.css`.
+
+Tailwind source is in `resources/css/tailwind.css` and the compiled stylesheet is written to `public/assets/css/tailwind.css`. App-specific source CSS is in `public/assets/css/style.css` and the browser loads the minified `public/assets/css/style.min.css`. Compiled CSS files are committed so the app can run under XAMPP after cloning.
+
+3. Create a `.env` file in the project root (use `.env.example` as a template) and configure your database credentials and Pusher keys.
+
+4. Import the database schema:
 
 ```bash
 mysql -u root -p < database/Clinic.sql
@@ -50,7 +62,13 @@ If you already have the database and need consent/guardian image uploads, run:
 mysql -u root -p < database/migrations/add_consent_image_path.sql
 ```
 
-4. Configure Pusher for real-time chat:
+If you already have the database and need appointments, clinic visits, notifications, and chat conversation status, run:
+
+```bash
+mysql -u root -p < database/migrations/add_clinic_workflow.sql
+```
+
+5. Configure Pusher for real-time chat:
 
 - Create a free app at [dashboard.pusher.com](https://dashboard.pusher.com/)
 - Copy **App ID**, **Key**, **Secret**, and **Cluster** into your `.env`:
@@ -64,10 +82,10 @@ PUSHER_APP_CLUSTER=ap1
 
 Chat still works without Pusher (messages are saved to MySQL), but the other party must refresh the page to see new replies.
 
-5. Open the app in your browser:
+6. Open the app in your browser:
 
 ```
-http://localhost/Software%20Engineering%20101/public/login.php
+http://localhost/ClinIQ/public/login.php
 ```
 
 ## Default Accounts
@@ -93,6 +111,15 @@ New student accounts are created by admins only. Admin-created students use the 
 - Students can download the clinic form and consent form as PDFs
 - Students can upload a parent/guardian ID image below the consent form
 - The ID image View button appears only after an upload exists
+- Admins can view uploaded parent/guardian ID images from the student record page
+- Admins can record clinic visits from each student record
+- Students can view clinic visit history in their patient records
+
+## Appointments
+
+- **Students:** `students/appointments.php` — request clinic appointments and review request status
+- **Admins:** `app/admin/appointments.php` — approve, decline, complete, cancel, and annotate requests
+- Appointment and visit actions create lightweight in-app notifications shown through dashboard badges
 
 ## Project Structure
 
@@ -103,6 +130,8 @@ New student accounts are created by admins only. Admin-created students use the 
 │   │   ├── view-student.php
 │   │   ├── edit-student.php
 │   │   ├── delete-student.php
+│   │   ├── view-consent-image.php
+│   │   ├── appointments.php
 │   │   ├── change-password.php
 │   │   ├── announcements.php
 │   │   ├── add-announcement.php
@@ -131,6 +160,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │   ├── messages.php        # Chat with admin
 │   ├── profile.php         # Patient records + clinic/consent forms
 │   ├── edit-profile.php    # Edit clinic form
+│   ├── appointments.php    # Clinic appointment requests
 │   ├── download-clinic-form.php
 │   ├── download-consent-form.php
 │   ├── view-consent-image.php
@@ -141,22 +171,36 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── add_messages.sql
 │       ├── add_must_change_password.sql
 │       ├── add_chat_queue.sql
-│       └── add_consent_image_path.sql
+│       ├── add_consent_image_path.sql
+│       └── add_clinic_workflow.sql
 ├── public/                 # Web entry point
 │   ├── login.php           # Login page
 │   ├── logout.php          # Logout handler
 │   ├── chat-queue.php      # Wait page when active chat slots are full
-│   ├── register.php        # Admin-only registration notice
 │   ├── index.php           # Admin dashboard (student list)
 │   └── assets/
-│       ├── css/style.css
+│       ├── css/style.css     # Editable app CSS source
+│       ├── css/style.min.css # Minified app CSS loaded by pages
+│       ├── css/tailwind.css # Generated Tailwind output
 │       ├── js/main.js
 │       ├── js/chat.js      # Pusher chat client
 │       ├── js/chat-queue.js # Queue polling client
 │       └── images/
+├── resources/
+│   └── css/tailwind.css    # Tailwind source
 ├── vendor/                 # Composer packages (gitignored)
+├── node_modules/           # npm packages (gitignored)
 ├── .env                    # Environment config (gitignored)
 ├── .env.example            # Template for .env
 ├── composer.json
+├── package.json
+├── package-lock.json
 └── README.MD
 ```
+
+## Local / Ignored Files
+
+- `.env` contains local database and Pusher credentials and must not be committed.
+- `vendor/` is installed by Composer and remains ignored.
+- `node_modules/` is installed by npm and remains ignored.
+- Files under `public/uploads/` are user uploads and remain ignored, except `public/uploads/.gitkeep`.

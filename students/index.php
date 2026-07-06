@@ -9,6 +9,8 @@ $data = fetchStudentFullProfile($pdo, $studentId);
 $student = $data['student'] ?? [];
 $medHistory = $data['medHistory'] ?? [];
 $announcements = fetchAnnouncements($pdo);
+$studentAppointments = fetchAppointments($pdo, null, $studentId);
+$latestVisit = fetchClinicVisits($pdo, $studentId, 1)[0] ?? null;
 
 cleanupChatPresence($pdo);
 $queueWaiting = (int) $pdo->query("SELECT COUNT(*) FROM ChatQueue")->fetchColumn();
@@ -18,7 +20,9 @@ $estimatedWait = $queueWaiting > 0
 
 $totalVisits = count($medHistory);
 $lastVisit = !empty($student['CreatedAt']) ? date('F j, Y', strtotime($student['CreatedAt'])) : 'No record';
+$lastVisit = $latestVisit ? date('F j, Y', strtotime($latestVisit['CreatedAt'])) : $lastVisit;
 $lastIssue = $medHistory[0]['Illness'] ?? 'No record';
+$lastIssue = $latestVisit['Complaint'] ?? $lastIssue;
 $profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
 $clinicStatus = $profileComplete ? 'TREATED' : 'PENDING';
 $studentPageTitle = 'Dashboard';
@@ -29,10 +33,11 @@ $studentPageTitle = 'Dashboard';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard</title>
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page">
+<body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
             <h1>Welcome, <?= htmlspecialchars($student['FirstName'] ?? $user['name']) ?></h1>
 
@@ -106,13 +111,19 @@ $studentPageTitle = 'Dashboard';
 
                 <section class="student-side-card queue-card-dashboard">
                     <div class="dashboard-section-title">
-                        <span><?= studentDashboardIcon('user') ?></span>
-                        <h2>Queue Status</h2>
+                        <span><?= studentDashboardIcon('calendar') ?></span>
+                        <h2>Appointment Status</h2>
                     </div>
-                    <p>Students currently waiting</p>
-                    <strong><?= $queueWaiting ?></strong>
-                    <p>Estimated wait time</p>
-                    <b><?= htmlspecialchars($estimatedWait) ?></b>
+                    <?php if (!empty($studentAppointments)): $latestAppointment = $studentAppointments[0]; ?>
+                        <p>Latest request</p>
+                        <strong style="font-size:2.6rem;"><?= htmlspecialchars(ucfirst($latestAppointment['Status'])) ?></strong>
+                        <p><?= date('M d, Y g:i A', strtotime($latestAppointment['RequestedFor'])) ?></p>
+                    <?php else: ?>
+                        <p>No appointment requests yet</p>
+                        <strong style="font-size:2.6rem;">0</strong>
+                        <p>Submit one when you need clinic support.</p>
+                    <?php endif; ?>
+                    <a href="appointments.php" class="dashboard-view-more">Manage Appointments</a>
                 </section>
             </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>

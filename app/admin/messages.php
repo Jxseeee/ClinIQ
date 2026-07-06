@@ -5,18 +5,28 @@ require_once __DIR__ . '/../includes/helpers.php';
 requireAdmin();
 requireChatCapacity($pdo);
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_chat_status') {
+    verifyCsrfToken();
+    $studentIdForStatus = $_POST['student_id'] ?? '';
+    $status = $_POST['status'] ?? '';
+
+    if (ctype_digit((string) $studentIdForStatus) && in_array($status, ['open', 'resolved'], true)) {
+        updateChatConversationStatus($pdo, (int) $studentIdForStatus, $status, (int) $_SESSION['user_id']);
+    }
+
+    header('Location: messages.php?student_id=' . urlencode((string) $studentIdForStatus));
+    exit;
+}
+
 $activeChatCount = activeChatCount($pdo);
 $threads = fetchChatThreads($pdo);
 $selectedId = isset($_GET['student_id']) && ctype_digit((string) $_GET['student_id'])
     ? (int) $_GET['student_id']
     : null;
 
-if ($selectedId === null && !empty($threads)) {
-    $selectedId = (int) $threads[0]['StudentID'];
-}
-
 $messages = [];
 $selectedStudent = null;
+$conversation = ['Status' => 'open'];
 
 if ($selectedId !== null) {
     $stmt = $pdo->prepare('SELECT StudentID, FirstName, LastName FROM Students WHERE StudentID = ?');
@@ -27,6 +37,7 @@ if ($selectedId !== null) {
         markChatMessagesRead($pdo, $selectedId, 'admin');
         $rows = fetchChatMessages($pdo, $selectedId);
         $messages = array_map(fn($row) => formatChatMessage($row, 'admin'), $rows);
+        $conversation = fetchChatConversation($pdo, $selectedId);
     } else {
         $selectedId = null;
     }
@@ -45,10 +56,11 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messages</title>
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page student-messages-body admin-dashboard-page">
+<body class="student-dashboard-page student-messages-body admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
         <div class="student-messages-page">
             <div class="student-messages-header">
@@ -77,7 +89,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
             </div>
         <?php endif; ?>
 
-        <div class="chat-layout card admin-chat-card">
+        <div class="chat-layout card admin-chat-card <?= $selectedStudent ? 'has-selected-chat' : 'is-conversation-list' ?>">
             <aside class="chat-sidebar" id="chat-sidebar">
                 <h2>Conversations</h2>
                 <?php if (empty($threads)): ?>
@@ -96,6 +108,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
                                 <?php if ((int) $t['UnreadCount'] > 0): ?>
                                     <span class="chat-unread-badge"><?= (int) $t['UnreadCount'] ?></span>
                                 <?php endif; ?>
+                                <span class="chat-status-mini"><?= htmlspecialchars(ucfirst($t['ConversationStatus'] ?? 'open')) ?></span>
                                 <?php if (!empty($t['LastMessage'])): ?>
                                     <span class="chat-thread-preview">
                                         <?= htmlspecialchars(mb_strimwidth($t['LastMessage'], 0, 60, '…')) ?>
@@ -111,8 +124,21 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
             <section class="chat-main">
                 <?php if ($selectedStudent): ?>
                     <div class="chat-main-header">
-                        <h2><?= htmlspecialchars($selectedStudent['FirstName'] . ' ' . $selectedStudent['LastName']) ?></h2>
-                        <span class="text-muted">Student ID #<?= (int) $selectedStudent['StudentID'] ?></span>
+                        <a href="messages.php" class="admin-chat-back">&larr; Back</a>
+                        <div>
+                            <h2><?= htmlspecialchars($selectedStudent['FirstName'] . ' ' . $selectedStudent['LastName']) ?></h2>
+                            <span class="text-muted">Student ID #<?= (int) $selectedStudent['StudentID'] ?></span>
+                        </div>
+                        <form method="POST" class="chat-status-form">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                            <input type="hidden" name="action" value="update_chat_status">
+                            <input type="hidden" name="student_id" value="<?= (int) $selectedStudent['StudentID'] ?>">
+                            <input type="hidden" name="status" value="<?= ($conversation['Status'] ?? 'open') === 'resolved' ? 'open' : 'resolved' ?>">
+                            <button type="submit" class="btn btn-success">
+                                <?= ($conversation['Status'] ?? 'open') === 'resolved' ? 'Reopen' : 'Mark Resolved' ?>
+                            </button>
+                            <span class="chat-status-pill"><?= htmlspecialchars(ucfirst($conversation['Status'] ?? 'open')) ?></span>
+                        </form>
                     </div>
 
                     <div id="chat-app"

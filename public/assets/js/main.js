@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', function () {
     initPasswordChecklist();
     initInputRestrictions();
     initConsentImageUpload();
+    initDashboardMobileNav();
+    initNotificationMenu();
 });
 
 /* ── 1. Auto-dismiss alerts ──────────────────────────── */
@@ -20,6 +22,88 @@ function initAlertAutoDismiss() {
             alert.style.opacity = '0';
             setTimeout(function () { alert.remove(); }, 500);
         }, 5000);
+    });
+}
+
+/* ── Mobile dashboard navigation ───────────── */
+
+function initDashboardMobileNav() {
+    var sidebar = document.querySelector('.student-sidebar');
+    var toggle = document.querySelector('.student-mobile-nav-toggle');
+    var nav = document.getElementById('student-mobile-nav');
+
+    if (!sidebar || !toggle || !nav) return;
+
+    function setOpen(isOpen) {
+        sidebar.classList.toggle('is-nav-open', isOpen);
+        toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    toggle.addEventListener('click', function () {
+        setOpen(!sidebar.classList.contains('is-nav-open'));
+    });
+
+    nav.querySelectorAll('a').forEach(function (link) {
+        link.addEventListener('click', function () {
+            setOpen(false);
+        });
+    });
+}
+
+/* ── Notification dropdown ─────────────────── */
+
+function initNotificationMenu() {
+    var menu = document.querySelector('.notification-menu');
+    if (!menu) return;
+
+    var button = menu.querySelector('.student-notification');
+    var count = menu.querySelector('.notification-count');
+    var notificationsUrl = menu.dataset.notificationsUrl;
+    var csrf = menu.dataset.csrf;
+    var hasMarkedRead = false;
+
+    if (!button) return;
+
+    function markRead() {
+        if (hasMarkedRead || !notificationsUrl || !csrf) return;
+        hasMarkedRead = true;
+
+        if (count) count.remove();
+        menu.querySelectorAll('.notification-dropdown a.is-unread').forEach(function (item) {
+            item.classList.remove('is-unread');
+        });
+
+        var body = new FormData();
+        body.append('csrf_token', csrf);
+
+        fetch(notificationsUrl, {
+            method: 'POST',
+            body: body,
+            credentials: 'same-origin'
+        }).catch(function () { /* badge is already cleared locally */ });
+    }
+
+    function setOpen(isOpen) {
+        menu.classList.toggle('is-open', isOpen);
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (isOpen) markRead();
+    }
+
+    button.addEventListener('click', function (event) {
+        event.stopPropagation();
+        setOpen(!menu.classList.contains('is-open'));
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!menu.contains(event.target)) {
+            setOpen(false);
+        }
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            setOpen(false);
+        }
     });
 }
 

@@ -1,0 +1,28 @@
+{
+  "name": "cliniq",
+  "version": "1.0.0",
+  "description": "A PHP CRUD application with role-based authentication. Admins manage students and post announcements. Students view announcements, fill out clinic forms, manage their own profile, and chat with admins in real time via Pusher.",
+  "scripts": {
+    "tailwind:build": "tailwindcss -i ./resources/css/tailwind.css -o ./public/assets/css/tailwind.css --minify",
+    "tailwind:watch": "tailwindcss -i ./resources/css/tailwind.css -o ./public/assets/css/tailwind.css --watch",
+    "css:minify": "cleancss --inline none -o ./public/assets/css/style.min.css ./public/assets/css/style.css",
+    "assets:build": "npm run tailwind:build && npm run css:minify"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jxseeee/ClinIQ.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Jxseeee/ClinIQ/issues"
+  },
+  "homepage": "https://github.com/Jxseeee/ClinIQ#readme",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.2",
+    "clean-css-cli": "^5.6.3",
+    "tailwindcss": "^4.3.2"
+  }
+}

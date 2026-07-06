@@ -1,0 +1,9 @@
+@layer theme, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@source "../../public/**/*.php";
+@source "../../students/**/*.php";
+@source "../../app/**/*.php";
+

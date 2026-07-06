@@ -122,10 +122,11 @@ $studentPageTitle = 'Clinic Form';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Profile</title>
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page">
+<body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="dashboard-content-card">
         <h1>School Clinic Form</h1>

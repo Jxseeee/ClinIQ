@@ -10,6 +10,7 @@ if (!$data) { header("Location: ../public/logout.php"); exit; }
 $profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
 $studentPageTitle = 'Patient Records';
 $uploadErrors = [];
+$clinicVisits = fetchClinicVisits($pdo, (int) $_SESSION['user_id']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_consent_image') {
     verifyCsrfToken();
@@ -77,10 +78,11 @@ $studentContentClass = 'patient-records-content';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile</title>
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/tailwind.css">
+    <link rel="stylesheet" href="../public/assets/css/style.min.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page">
+<body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="patient-records-page">
         <div class="patient-records-actions">
@@ -166,6 +168,32 @@ $studentContentClass = 'patient-records-content';
             </div>
         </section>
         <a href="download-clinic-form.php" class="btn btn-success paper-download-btn">Download a copy</a>
+
+        <section class="student-announcements-panel admin-full-panel clinic-visit-panel">
+            <div class="dashboard-section-title">
+                <span><?= studentDashboardIcon('records') ?></span>
+                <h2>Clinic Visit History</h2>
+            </div>
+
+            <?php if (!empty($clinicVisits)): ?>
+                <div class="appointment-card-list">
+                    <?php foreach ($clinicVisits as $visit): ?>
+                        <article class="appointment-card">
+                            <div>
+                                <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
+                                <p><?= htmlspecialchars($visit['Complaint']) ?></p>
+                                <?php if (!empty($visit['Treatment'])): ?>
+                                    <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
+                                <?php endif; ?>
+                            </div>
+                            <strong><?= htmlspecialchars(ucfirst($visit['Status'])) ?></strong>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="dashboard-empty">No clinic visits recorded yet.</div>
+            <?php endif; ?>
+        </section>
 
         <section class="consent-paper-form">
             <div class="consent-paper-inner">
