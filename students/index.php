@@ -106,7 +106,6 @@ $studentPageTitle = 'Dashboard';
                         <span><?= studentDashboardIcon('shield') ?></span>
                         <div><small>Status</small><strong><?= htmlspecialchars($clinicStatus) ?></strong></div>
                     </div>
-                    <a href="profile.php" class="dashboard-view-more">View Report</a>
                 </section>
 
                 <section class="student-side-card queue-card-dashboard">

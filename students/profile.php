@@ -144,8 +144,16 @@ $studentContentClass = 'patient-records-content';
             </div>
 
             <div class="paper-section">
-                <h2>Past History</h2>
-                <table class="paper-table paper-history-table">
+                <h2>Past History <span class="paper-section-note">(Please check if the child has a past history of the following diseases, please provide the date and age)</span></h2>
+                <table class="paper-table paper-history-table paper-history-admin-table">
+                    <tr>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                    </tr>
                     <?php foreach (array_chunk($illnesses, 2) as $pair): ?>
                         <tr>
                             <?php foreach ($pair as $illness): ?>
@@ -155,8 +163,11 @@ $studentContentClass = 'patient-records-content';
                             <?php endforeach; ?>
                         </tr>
                     <?php endforeach; ?>
+                    <tr>
+                        <td colspan="3">Medication/s taken on regular basis:</td>
+                        <td colspan="3"><?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></td>
+                    </tr>
                 </table>
-                <p><strong>Medication/s taken on regular basis:</strong> <?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></p>
             </div>
 
             <div class="paper-section">

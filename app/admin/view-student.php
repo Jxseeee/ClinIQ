@@ -4,10 +4,10 @@ require_once __DIR__ . '/../includes/helpers.php';
 requireAdmin();
 
 $id = $_GET['id'] ?? null;
-if (!$id) { header("Location: ../../public/index.php"); exit; }
+if (!$id) { header("Location: students.php"); exit; }
 
 $data = fetchStudentFullProfile($pdo, (int)$id);
-if (!$data) { header("Location: ../../public/index.php?error=notfound"); exit; }
+if (!$data) { header("Location: students.php?error=notfound"); exit; }
 
 $visitErrors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_visit') {
@@ -61,7 +61,7 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
             <h1>FCAT School Clinic Form 01</h1>
             <div>
                 <a href="edit-student.php?id=<?= (int) $student['StudentID'] ?>" class="btn btn-success paper-download-btn">Edit Student</a>
-                <a href="../../public/index.php" class="btn btn-secondary paper-download-btn">Back to List</a>
+                <a href="students.php" class="btn btn-secondary paper-download-btn">Back to List</a>
             </div>
         </div>
 
@@ -103,8 +103,16 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
             </div>
 
             <div class="paper-section">
-                <h2>Past History</h2>
-                <table class="paper-table paper-history-table">
+                <h2>Past History <span class="paper-section-note">(Please check if the child has a past history of the following diseases, please provide the date and age)</span></h2>
+                <table class="paper-table paper-history-table paper-history-admin-table">
+                    <tr>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                    </tr>
                     <?php foreach (array_chunk($illnesses, 2) as $pair): ?>
                         <tr>
                             <?php foreach ($pair as $illness): ?>
@@ -114,8 +122,11 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
                             <?php endforeach; ?>
                         </tr>
                     <?php endforeach; ?>
+                    <tr>
+                        <td colspan="3">Medication/s taken on regular basis:</td>
+                        <td colspan="3"><?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></td>
+                    </tr>
                 </table>
-                <p><strong>Medication/s taken on regular basis:</strong> <?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></p>
             </div>
 
             <div class="paper-section">

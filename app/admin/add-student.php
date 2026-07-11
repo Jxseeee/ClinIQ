@@ -41,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $_SESSION['flash_temp_password'] = DEFAULT_STUDENT_PASSWORD;
 
-            header("Location: ../../public/index.php?success=added");
+            header("Location: students.php?success=added");
             exit;
         } catch (PDOException $e) {
             if ($e->getCode() == 23000) {
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Save Student</button>
-                    <a href="../../public/index.php" class="btn btn-secondary">Cancel</a>
+                    <a href="students.php" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

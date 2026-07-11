@@ -1827,6 +1827,12 @@ table tr:hover {
     text-transform: uppercase;
 }
 
+.paper-section-note {
+    font-size: 0.68rem;
+    font-weight: 400;
+    text-transform: none;
+}
+
 .paper-table {
     width: 100%;
     border-collapse: collapse;
@@ -1856,6 +1862,24 @@ table tr:hover {
 
 .paper-history-table td {
     width: 16.66%;
+}
+
+.paper-history-admin-table th:nth-child(1),
+.paper-history-admin-table td:nth-child(1),
+.paper-history-admin-table th:nth-child(4),
+.paper-history-admin-table td:nth-child(4) {
+    width: 38%;
+}
+
+.paper-history-admin-table th:nth-child(2),
+.paper-history-admin-table td:nth-child(2),
+.paper-history-admin-table th:nth-child(3),
+.paper-history-admin-table td:nth-child(3),
+.paper-history-admin-table th:nth-child(5),
+.paper-history-admin-table td:nth-child(5),
+.paper-history-admin-table th:nth-child(6),
+.paper-history-admin-table td:nth-child(6) {
+    width: 6%;
 }
 
 .paper-allergy-table td {

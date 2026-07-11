@@ -90,7 +90,7 @@ http://localhost/ClinIQ/public/login.php
 
 ## Default Accounts
 
-| Role    | Username / Student ID | Password     |
+| Role    | Username / Student ID | Password    |
 |---------|----------------------|--------------|
 | Admin   | admin                | admin123     |
 | Student | 10001                | student123   |
@@ -126,6 +126,7 @@ New student accounts are created by admins only. Admin-created students use the 
 ```
 ├── app/
 │   ├── admin/              # Admin pages (full CRUD, auth-guarded)
+│   │   ├── students.php
 │   │   ├── add-student.php
 │   │   ├── view-student.php
 │   │   ├── edit-student.php
@@ -197,10 +198,3 @@ New student accounts are created by admins only. Admin-created students use the 
 ├── package-lock.json
 └── README.MD
 ```
-
-## Local / Ignored Files
-
-- `.env` contains local database and Pusher credentials and must not be committed.
-- `vendor/` is installed by Composer and remains ignored.
-- `node_modules/` is installed by npm and remains ignored.
-- Files under `public/uploads/` are user uploads and remain ignored, except `public/uploads/.gitkeep`.

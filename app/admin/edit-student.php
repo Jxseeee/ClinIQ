@@ -5,7 +5,7 @@ requireAdmin();
 
 $id = $_GET['id'] ?? ($_POST['id'] ?? null);
 if (!$id) {
-    header("Location: ../../public/index.php");
+    header("Location: students.php");
     exit;
 }
 
@@ -14,7 +14,7 @@ $stmt->execute([$id]);
 $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$student) {
-    header("Location: ../../public/index.php?error=notfound");
+    header("Location: students.php?error=notfound");
     exit;
 }
 
@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $suffix = $passwordReset ? 'password_reset' : 'updated';
-            header("Location: ../../public/index.php?success=$suffix");
+            header("Location: students.php?success=$suffix");
             exit;
         } catch (PDOException $e) {
             if ($e->getCode() == 23000) {
@@ -147,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Update Student</button>
-                    <a href="../../public/index.php" class="btn btn-secondary">Cancel</a>
+                    <a href="students.php" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

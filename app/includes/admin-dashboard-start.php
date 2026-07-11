@@ -7,6 +7,7 @@ $adminName = $user['name'] ?? 'Admin';
 $adminInitial = strtoupper(substr($adminName, 0, 1));
 $currentPage = basename(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''));
 $adminActivePage = match ($currentPage) {
+    'students.php', 'add-student.php', 'edit-student.php', 'view-student.php' => 'students.php',
     'announcements.php', 'add-announcement.php', 'edit-announcement.php' => 'announcements.php',
     'appointments.php' => 'appointments.php',
     'messages.php' => 'messages.php',
@@ -23,6 +24,7 @@ $adminNotifications = fetchNotifications($pdo, 'admin');
 
 $adminNavItems = [
     'index.php'         => ['Dashboard',     'dashboard', $basePath . '/public/index.php'],
+    'students.php'      => ['Students',      'records',   $basePath . '/app/admin/students.php'],
     'appointments.php'  => ['Appointments',  'calendar',  $basePath . '/app/admin/appointments.php'],
     'announcements.php' => ['Announcements', 'megaphone', $basePath . '/app/admin/announcements.php'],
     'messages.php'      => ['Messages',      'message',   $basePath . '/app/admin/messages.php'],

@@ -3,14 +3,14 @@ require __DIR__ . '/../config/auth.php';
 requireAdmin();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header("Location: ../../public/index.php");
+    header("Location: students.php");
     exit;
 }
 verifyCsrfToken();
 
 $id = $_POST['id'] ?? null;
 if (!$id) {
-    header("Location: ../../public/index.php");
+    header("Location: students.php");
     exit;
 }
 
@@ -18,12 +18,12 @@ $stmt = $pdo->prepare("SELECT StudentID FROM Students WHERE StudentID = ?");
 $stmt->execute([$id]);
 
 if (!$stmt->fetch()) {
-    header("Location: ../../public/index.php?error=notfound");
+    header("Location: students.php?error=notfound");
     exit;
 }
 
 $stmt = $pdo->prepare("DELETE FROM Students WHERE StudentID = ?");
 $stmt->execute([$id]);
 
-header("Location: ../../public/index.php?success=deleted");
+header("Location: students.php?success=deleted");
 exit;
