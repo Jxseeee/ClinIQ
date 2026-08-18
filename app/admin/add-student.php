@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Add Student</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -98,10 +98,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            value="<?= htmlspecialchars($_POST['last_name'] ?? '') ?>" required>
                 </div>
                 <div class="form-group">
-                    <label for="email">Email <span class="text-muted">(@university.edu.ph only)</span></label>
+                          <label for="email">Email <span class="text-muted">(@fcat.com.ph only)</span></label>
                     <input type="email" id="email" name="email"
                            value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
-                           placeholder="e.g. juan@university.edu.ph">
+                              placeholder="e.g. juan@fcat.com.ph">
                 </div>
                 <div class="form-group">
                     <label for="phone">Phone</label>

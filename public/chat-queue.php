@@ -26,9 +26,10 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="5">
     <title>Chat Queue</title>
     <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.min.css">
+    <link rel="stylesheet" href="assets/css/style.css">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
 <body class="antialiased selection:bg-green-200 selection:text-green-950">
@@ -47,7 +48,7 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
             </div>
 
             <p class="text-muted">
-                This page checks every few seconds. You will be moved into chat automatically when a slot opens.
+                This page refreshes every 5 seconds. You will be moved into chat automatically when a slot opens.
             </p>
 
             <a href="<?= $_SESSION['role'] === 'admin' ? '../public/index.php' : '../students/index.php' ?>"

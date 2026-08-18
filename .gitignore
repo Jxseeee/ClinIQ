@@ -3,11 +3,13 @@
 !.env.example
 vendor/
 composer.phar
-node_modules/
 dist/
 build/
 public/uploads/*
 !public/uploads/.gitkeep
+!public/uploads/profiles/
+public/uploads/profiles/*
+!public/uploads/profiles/.gitkeep
 *.log
 *.log.*
 logs/

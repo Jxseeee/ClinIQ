@@ -65,11 +65,15 @@ function broadcastChatMessage(int $studentId, array $payload): void
         return;
     }
 
-    $pusher->trigger(chatChannelName($studentId), 'new-message', $payload);
+    try {
+        $pusher->trigger(chatChannelName($studentId), 'new-message', $payload);
 
-    if ($payload['sender_role'] === 'student') {
-        $pusher->trigger(adminInboxChannel(), 'inbox-update', [
-            'student_id' => $studentId,
-        ]);
+        if ($payload['sender_role'] === 'student') {
+            $pusher->trigger(adminInboxChannel(), 'inbox-update', [
+                'student_id' => $studentId,
+            ]);
+        }
+    } catch (Throwable $error) {
+        error_log('Pusher chat broadcast failed: ' . $error->getMessage());
     }
 }

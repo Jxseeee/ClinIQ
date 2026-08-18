@@ -9,8 +9,8 @@ $data = fetchStudentFullProfile($pdo, $studentId);
 $student = $data['student'] ?? [];
 $medHistory = $data['medHistory'] ?? [];
 $announcements = fetchAnnouncements($pdo);
-$studentAppointments = fetchAppointments($pdo, null, $studentId);
 $latestVisit = fetchClinicVisits($pdo, $studentId, 1)[0] ?? null;
+$clinicOccupancy = fetchClinicOccupancy($pdo);
 
 cleanupChatPresence($pdo);
 $queueWaiting = (int) $pdo->query("SELECT COUNT(*) FROM ChatQueue")->fetchColumn();
@@ -24,7 +24,12 @@ $lastVisit = $latestVisit ? date('F j, Y', strtotime($latestVisit['CreatedAt']))
 $lastIssue = $medHistory[0]['Illness'] ?? 'No record';
 $lastIssue = $latestVisit['Complaint'] ?? $lastIssue;
 $profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
-$clinicStatus = $profileComplete ? 'TREATED' : 'PENDING';
+$clinicStatus = match ($latestVisit['Status'] ?? null) {
+    'follow-up' => 'FOLLOW UP',
+    'completed' => 'TREATED',
+    'open' => 'OPEN',
+    default => $profileComplete ? 'TREATED' : 'PENDING',
+};
 $studentPageTitle = 'Dashboard';
 ?>
 <!DOCTYPE html>
@@ -34,10 +39,10 @@ $studentPageTitle = 'Dashboard';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
-<body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
+<body class="student-dashboard-page dashboard-home-body antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
             <h1>Welcome, <?= htmlspecialchars($student['FirstName'] ?? $user['name']) ?></h1>
 
@@ -58,6 +63,24 @@ $studentPageTitle = 'Dashboard';
                         <small>8:00 AM - 5:00 PM</small>
                     </div>
                     <span class="stat-icon green"><?= studentDashboardIcon('check') ?></span>
+                </article>
+
+                <article class="student-stat-card">
+                    <div>
+                        <h2>Nurses on duty</h2>
+                        <strong><?= (int) $clinicOccupancy['NursesOnDuty'] ?></strong>
+                        <small>Currently attending</small>
+                    </div>
+                    <span class="stat-icon admin-stat-blue"><?= studentDashboardIcon('nurse') ?></span>
+                </article>
+
+                <article class="student-stat-card">
+                    <div>
+                        <h2>Students in clinic</h2>
+                        <strong><?= (int) $clinicOccupancy['StudentsInClinic'] ?></strong>
+                        <small>Currently receiving care</small>
+                    </div>
+                    <span class="stat-icon pink"><?= studentDashboardIcon('people') ?></span>
                 </article>
             </div>
 
@@ -91,7 +114,7 @@ $studentPageTitle = 'Dashboard';
 
                 <section class="student-side-card health-card">
                     <div class="dashboard-section-title">
-                        <span><?= studentDashboardIcon('user') ?></span>
+                        <span><?= studentDashboardIcon('pulse') ?></span>
                         <h2>Health Snapshot</h2>
                     </div>
                     <div class="health-row">
@@ -108,22 +131,6 @@ $studentPageTitle = 'Dashboard';
                     </div>
                 </section>
 
-                <section class="student-side-card queue-card-dashboard">
-                    <div class="dashboard-section-title">
-                        <span><?= studentDashboardIcon('calendar') ?></span>
-                        <h2>Appointment Status</h2>
-                    </div>
-                    <?php if (!empty($studentAppointments)): $latestAppointment = $studentAppointments[0]; ?>
-                        <p>Latest request</p>
-                        <strong style="font-size:2.6rem;"><?= htmlspecialchars(ucfirst($latestAppointment['Status'])) ?></strong>
-                        <p><?= date('M d, Y g:i A', strtotime($latestAppointment['RequestedFor'])) ?></p>
-                    <?php else: ?>
-                        <p>No appointment requests yet</p>
-                        <strong style="font-size:2.6rem;">0</strong>
-                        <p>Submit one when you need clinic support.</p>
-                    <?php endif; ?>
-                    <a href="appointments.php" class="dashboard-view-more">Manage Appointments</a>
-                </section>
             </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
 

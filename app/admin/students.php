@@ -16,7 +16,7 @@ $adminPageTitle = 'Students';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">

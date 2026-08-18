@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', function () {
     initAlertAutoDismiss();
-    initLoginModal();
     initFormValidation();
     initDeleteModal();
     initLiveSearch();
@@ -9,6 +8,12 @@ document.addEventListener('DOMContentLoaded', function () {
     initPasswordChecklist();
     initInputRestrictions();
     initConsentImageUpload();
+    initProfilePhotoUpload();
+    initBirthDatePicker();
+    initFollowUpDatePicker();
+    initClinicFormWizard();
+    initReportDialogs();
+    initReportPrint();
     initDashboardMobileNav();
     initNotificationMenu();
 });
@@ -107,42 +112,6 @@ function initNotificationMenu() {
     });
 }
 
-/* ── Login modal ───────────────────────────── */
-
-function initLoginModal() {
-    var modal = document.getElementById('login-modal');
-    var openBtn = document.getElementById('open-login-modal');
-    var closeBtn = document.getElementById('close-login-modal');
-
-    if (!modal || !openBtn || !closeBtn) return;
-
-    function openModal() {
-        modal.classList.add('is-open');
-        modal.setAttribute('aria-hidden', 'false');
-        var firstInput = modal.querySelector('input');
-        if (firstInput) firstInput.focus();
-    }
-
-    function closeModal() {
-        modal.classList.remove('is-open');
-        modal.setAttribute('aria-hidden', 'true');
-        openBtn.focus();
-    }
-
-    openBtn.addEventListener('click', openModal);
-    closeBtn.addEventListener('click', closeModal);
-
-    modal.addEventListener('click', function (e) {
-        if (e.target === modal) closeModal();
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && modal.classList.contains('is-open')) {
-            closeModal();
-        }
-    });
-}
-
 /* ── 2. Client-side form validation ──────────────────── */
 
 function initFormValidation() {
@@ -167,8 +136,8 @@ function initFormValidation() {
 
             if (!emailRe.test(emailVal)) {
                 errors.push('Invalid email format.');
-            } else if (!emailVal.endsWith('@university.edu.ph')) {
-                errors.push('Email must be a @university.edu.ph address.');
+            } else if (!emailVal.endsWith('@fcat.com.ph')) {
+                errors.push('Email must be a @fcat.com.ph address.');
             }
         }
 
@@ -198,10 +167,11 @@ function initDeleteModal() {
 
     var overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
+    overlay.setAttribute('aria-hidden', 'true');
     overlay.innerHTML =
-        '<div class="modal-box">' +
-        '  <h3>Confirm Delete</h3>' +
-        '  <p>Are you sure? This action cannot be undone.</p>' +
+        '<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-delete-title" aria-describedby="modal-delete-message">' +
+        '  <h3 id="modal-delete-title">Confirm delete</h3>' +
+        '  <p id="modal-delete-message">Are you sure? This action cannot be undone.</p>' +
         '  <div class="modal-actions">' +
         '    <button id="modal-confirm" class="btn btn-danger" type="button">Delete</button>' +
         '    <button id="modal-cancel" class="btn btn-secondary" type="button">Cancel</button>' +
@@ -211,13 +181,29 @@ function initDeleteModal() {
 
     var confirmBtn = document.getElementById('modal-confirm');
     var cancelBtn  = document.getElementById('modal-cancel');
+    var title = document.getElementById('modal-delete-title');
+    var message = document.getElementById('modal-delete-message');
     var pendingForm = null;
+    var activeTrigger = null;
+
+    function closeModal() {
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+        pendingForm = null;
+        if (activeTrigger) activeTrigger.focus();
+        activeTrigger = null;
+    }
 
     forms.forEach(function (form) {
         form.addEventListener('submit', function (e) {
             e.preventDefault();
             pendingForm = this;
+            activeTrigger = document.activeElement;
+            title.textContent = this.dataset.deleteTitle || 'Confirm delete';
+            message.textContent = this.dataset.deleteMessage || 'Are you sure? This action cannot be undone.';
             overlay.classList.add('active');
+            overlay.setAttribute('aria-hidden', 'false');
+            confirmBtn.focus();
         });
     });
 
@@ -226,17 +212,16 @@ function initDeleteModal() {
     });
 
     cancelBtn.addEventListener('click', function () {
-        overlay.classList.remove('active');
-        pendingForm = null;
+        closeModal();
     });
 
     overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) overlay.classList.remove('active');
+        if (e.target === overlay) closeModal();
     });
 
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && overlay.classList.contains('active')) {
-            overlay.classList.remove('active');
+            closeModal();
         }
     });
 }
@@ -291,6 +276,12 @@ function initInputRestrictions() {
     document.querySelectorAll('.numeric-input').forEach(function (input) {
         input.addEventListener('input', function () {
             this.value = this.value.replace(/[^0-9.]/g, '');
+        });
+    });
+
+    document.querySelectorAll('.integer-input').forEach(function (input) {
+        input.addEventListener('input', function () {
+            this.value = this.value.replace(/\D/g, '').slice(0, 3);
         });
     });
 }
@@ -420,5 +411,659 @@ function initConsentImageUpload() {
                 if (prompt) prompt.textContent = 'Change image';
             }
         });
+    });
+}
+
+function initProfilePhotoUpload() {
+    document.querySelectorAll('[data-profile-photo-form]').forEach(function (form) {
+        var input = form.querySelector('input[type="file"][name="profile_image"]');
+        var layout = form.closest('.settings-profile-layout');
+        var preview = layout ? layout.querySelector('[data-profile-preview]') : null;
+        var fileName = form.querySelector('.settings-profile-file-name');
+        var submit = form.querySelector('.settings-profile-submit');
+        var previewUrl = null;
+
+        if (!input || !preview || !fileName || !submit) return;
+
+        input.addEventListener('change', function () {
+            var file = input.files && input.files[0];
+
+            if (previewUrl) {
+                URL.revokeObjectURL(previewUrl);
+                previewUrl = null;
+            }
+
+            if (!file) {
+                fileName.textContent = 'No file selected';
+                submit.disabled = true;
+                return;
+            }
+
+            fileName.textContent = file.name;
+            submit.disabled = false;
+
+            if (file.type && file.type.indexOf('image/') === 0) {
+                previewUrl = URL.createObjectURL(file);
+                var image = document.createElement('img');
+                image.className = 'settings-profile-image';
+                image.alt = 'Selected profile photo preview';
+                image.src = previewUrl;
+                preview.replaceChildren(image);
+            }
+        });
+    });
+}
+
+function initBirthDatePicker() {
+    document.querySelectorAll('[data-birth-date-picker]').forEach(function (picker) {
+        var input = picker.querySelector('input[name="date_of_birth"]');
+        var trigger = picker.querySelector('.birth-date-trigger');
+        var display = picker.querySelector('#birth-date-display');
+        var calendar = picker.querySelector('.birth-date-calendar');
+        var monthSelect = picker.querySelector('[data-birth-month]');
+        var yearSelect = picker.querySelector('[data-birth-year]');
+        var grid = picker.querySelector('.birth-date-calendar-grid');
+        var label = document.getElementById('birth-date-label');
+
+        if (!input || !trigger || !display || !calendar || !monthSelect || !yearSelect || !grid) {
+            return;
+        }
+
+        function parseDate(value) {
+            var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+            if (!match) return null;
+
+            var year = Number(match[1]);
+            var month = Number(match[2]) - 1;
+            var day = Number(match[3]);
+            var date = new Date(year, month, day, 12, 0, 0, 0);
+
+            return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+                ? date
+                : null;
+        }
+
+        function isoDate(date) {
+            return date.getFullYear() + '-' +
+                String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                String(date.getDate()).padStart(2, '0');
+        }
+
+        function formatDate(date) {
+            return date.toLocaleDateString(undefined, {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        function isSameDate(first, second) {
+            return Boolean(first && second && isoDate(first) === isoDate(second));
+        }
+
+        var minimumDate = parseDate(picker.dataset.minDate);
+        var maximumDate = parseDate(picker.dataset.maxDate);
+        if (!minimumDate || !maximumDate) return;
+
+        var selectedDate = parseDate(input.value);
+        if (selectedDate && (selectedDate < minimumDate || selectedDate > maximumDate)) {
+            selectedDate = null;
+            input.value = '';
+        }
+
+        var defaultDate = new Date(maximumDate.getFullYear() - 18, maximumDate.getMonth(), 1, 12, 0, 0, 0);
+        if (defaultDate < minimumDate) defaultDate = minimumDate;
+        var visibleMonth = new Date(
+            (selectedDate || defaultDate).getFullYear(),
+            (selectedDate || defaultDate).getMonth(),
+            1,
+            12,
+            0,
+            0,
+            0
+        );
+
+        function isAllowed(date) {
+            return date >= minimumDate && date <= maximumDate;
+        }
+
+        function updateTrigger() {
+            display.textContent = selectedDate ? formatDate(selectedDate) : 'Select birth date';
+            trigger.classList.toggle('has-value', Boolean(selectedDate));
+        }
+
+        function populateSelectors() {
+            var monthNames = Array.from({ length: 12 }, function (_, month) {
+                return new Date(2000, month, 1).toLocaleDateString(undefined, { month: 'long' });
+            });
+
+            monthSelect.replaceChildren();
+            monthNames.forEach(function (monthName, month) {
+                var option = new Option(monthName, String(month));
+                var monthStart = new Date(visibleMonth.getFullYear(), month, 1, 12, 0, 0, 0);
+                var monthEnd = new Date(visibleMonth.getFullYear(), month + 1, 0, 12, 0, 0, 0);
+                option.disabled = monthEnd < minimumDate || monthStart > maximumDate;
+                monthSelect.add(option);
+            });
+
+            yearSelect.replaceChildren();
+            for (var year = maximumDate.getFullYear(); year >= minimumDate.getFullYear(); year--) {
+                yearSelect.add(new Option(String(year), String(year)));
+            }
+
+            monthSelect.value = String(visibleMonth.getMonth());
+            yearSelect.value = String(visibleMonth.getFullYear());
+        }
+
+        function emptyCell() {
+            var cell = document.createElement('span');
+            cell.className = 'birth-date-calendar-empty';
+            cell.setAttribute('aria-hidden', 'true');
+            return cell;
+        }
+
+        function renderCalendar() {
+            populateSelectors();
+            grid.replaceChildren();
+
+            var leadingCells = visibleMonth.getDay();
+            var daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
+
+            for (var leading = 0; leading < leadingCells; leading++) {
+                grid.appendChild(emptyCell());
+            }
+
+            for (var day = 1; day <= daysInMonth; day++) {
+                var date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day, 12, 0, 0, 0);
+
+                if (!isAllowed(date)) {
+                    var unavailable = document.createElement('span');
+                    unavailable.className = 'birth-date-calendar-day is-unavailable';
+                    unavailable.textContent = String(day);
+                    unavailable.setAttribute('aria-hidden', 'true');
+                    grid.appendChild(unavailable);
+                    continue;
+                }
+
+                var dayButton = document.createElement('button');
+                dayButton.type = 'button';
+                dayButton.className = 'birth-date-calendar-day';
+                dayButton.dataset.date = isoDate(date);
+                dayButton.textContent = String(day);
+                dayButton.setAttribute('aria-label', formatDate(date));
+                dayButton.setAttribute('aria-selected', isSameDate(date, selectedDate) ? 'true' : 'false');
+
+                if (isSameDate(date, selectedDate)) {
+                    dayButton.classList.add('is-selected');
+                }
+
+                grid.appendChild(dayButton);
+            }
+
+            while (grid.children.length < 42) {
+                grid.appendChild(emptyCell());
+            }
+        }
+
+        function setOpen(isOpen) {
+            calendar.hidden = !isOpen;
+            trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            if (isOpen) renderCalendar();
+        }
+
+        function updateVisibleMonth() {
+            var year = Number(yearSelect.value);
+            var month = Number(monthSelect.value);
+            var candidate = new Date(year, month, 1, 12, 0, 0, 0);
+            var maximumMonth = new Date(maximumDate.getFullYear(), maximumDate.getMonth(), 1, 12, 0, 0, 0);
+            var minimumMonth = new Date(minimumDate.getFullYear(), minimumDate.getMonth(), 1, 12, 0, 0, 0);
+
+            if (candidate > maximumMonth) candidate = maximumMonth;
+            if (candidate < minimumMonth) candidate = minimumMonth;
+            visibleMonth = candidate;
+            renderCalendar();
+        }
+
+        input.hidden = true;
+        trigger.hidden = false;
+        updateTrigger();
+
+        trigger.addEventListener('click', function () {
+            setOpen(calendar.hidden);
+        });
+
+        monthSelect.addEventListener('change', updateVisibleMonth);
+        yearSelect.addEventListener('change', updateVisibleMonth);
+
+        grid.addEventListener('click', function (event) {
+            var button = event.target.closest('button[data-date]');
+            if (!button) return;
+
+            selectedDate = parseDate(button.dataset.date);
+            input.value = button.dataset.date;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            updateTrigger();
+            setOpen(false);
+            trigger.focus();
+        });
+
+        if (label) {
+            label.addEventListener('click', function (event) {
+                event.preventDefault();
+                trigger.focus();
+                setOpen(true);
+            });
+        }
+
+        document.addEventListener('click', function (event) {
+            if (!picker.contains(event.target)) setOpen(false);
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !calendar.hidden) {
+                setOpen(false);
+                trigger.focus();
+            }
+        });
+    });
+}
+
+function initFollowUpDatePicker() {
+    document.querySelectorAll('[data-follow-up-date-picker]').forEach(function (picker) {
+        var input = picker.querySelector('input[name="follow_up_date"]');
+        var trigger = picker.querySelector('.follow-up-date-trigger');
+        var display = picker.querySelector('#follow-up-date-display');
+        var calendar = picker.querySelector('.follow-up-calendar');
+        var monthLabel = picker.querySelector('#follow-up-calendar-month');
+        var grid = picker.querySelector('.follow-up-calendar-grid');
+        var previousButton = picker.querySelector('[data-follow-up-previous]');
+        var nextButton = picker.querySelector('[data-follow-up-next]');
+        var clearButton = picker.querySelector('[data-follow-up-clear]');
+        var label = document.getElementById('follow-up-date-label');
+
+        if (!input || !trigger || !display || !calendar || !monthLabel || !grid || !previousButton || !nextButton || !clearButton) {
+            return;
+        }
+
+        function parseDate(value) {
+            var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+            if (!match) return null;
+
+            var year = Number(match[1]);
+            var month = Number(match[2]) - 1;
+            var day = Number(match[3]);
+            var date = new Date(year, month, day, 12, 0, 0, 0);
+
+            return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+                ? date
+                : null;
+        }
+
+        function isoDate(date) {
+            return date.getFullYear() + '-' +
+                String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                String(date.getDate()).padStart(2, '0');
+        }
+
+        function startOfMonth(date) {
+            return new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
+        }
+
+        function monthIndex(date) {
+            return date.getFullYear() * 12 + date.getMonth();
+        }
+
+        function isSameDate(first, second) {
+            return Boolean(first && second && isoDate(first) === isoDate(second));
+        }
+
+        function formatDate(date) {
+            return date.toLocaleDateString(undefined, {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        var minimumDate = parseDate(picker.dataset.minDate);
+        var maximumDate = parseDate(picker.dataset.maxDate);
+        if (!minimumDate || !maximumDate) return;
+
+        var minimumMonth = startOfMonth(minimumDate);
+        var maximumMonth = startOfMonth(maximumDate);
+        var selectedDate = parseDate(input.value);
+
+        function isAllowed(date) {
+            return date >= minimumDate && date <= maximumDate;
+        }
+
+        if (selectedDate && !isAllowed(selectedDate)) {
+            selectedDate = null;
+            input.value = '';
+        }
+
+        var visibleMonth = startOfMonth(selectedDate || minimumDate);
+
+        function updateTrigger() {
+            display.textContent = selectedDate ? formatDate(selectedDate) : 'Select a date';
+            trigger.classList.toggle('has-value', Boolean(selectedDate));
+        }
+
+        function emptyCell() {
+            var cell = document.createElement('span');
+            cell.className = 'follow-up-calendar-empty';
+            cell.setAttribute('aria-hidden', 'true');
+            return cell;
+        }
+
+        function renderCalendar() {
+            grid.replaceChildren();
+            monthLabel.textContent = visibleMonth.toLocaleDateString(undefined, {
+                month: 'long',
+                year: 'numeric'
+            });
+
+            previousButton.disabled = monthIndex(visibleMonth) <= monthIndex(minimumMonth);
+            nextButton.disabled = monthIndex(visibleMonth) >= monthIndex(maximumMonth);
+
+            var leadingCells = visibleMonth.getDay();
+            var daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
+
+            for (var leading = 0; leading < leadingCells; leading++) {
+                grid.appendChild(emptyCell());
+            }
+
+            for (var day = 1; day <= daysInMonth; day++) {
+                var date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day, 12, 0, 0, 0);
+
+                if (!isAllowed(date)) {
+                    var unavailable = document.createElement('span');
+                    unavailable.className = 'follow-up-calendar-day is-unavailable';
+                    unavailable.textContent = String(day);
+                    unavailable.setAttribute('aria-hidden', 'true');
+                    grid.appendChild(unavailable);
+                    continue;
+                }
+
+                var dayButton = document.createElement('button');
+                dayButton.type = 'button';
+                dayButton.className = 'follow-up-calendar-day';
+                dayButton.dataset.date = isoDate(date);
+                dayButton.textContent = String(day);
+                dayButton.setAttribute('aria-label', formatDate(date));
+                dayButton.setAttribute('aria-selected', isSameDate(date, selectedDate) ? 'true' : 'false');
+
+                if (isSameDate(date, minimumDate)) {
+                    dayButton.classList.add('is-today');
+                    dayButton.setAttribute('aria-current', 'date');
+                }
+                if (isSameDate(date, selectedDate)) {
+                    dayButton.classList.add('is-selected');
+                }
+
+                grid.appendChild(dayButton);
+            }
+
+            while (grid.children.length < 42) {
+                grid.appendChild(emptyCell());
+            }
+        }
+
+        function setOpen(isOpen) {
+            calendar.hidden = !isOpen;
+            trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+            if (isOpen) renderCalendar();
+        }
+
+        function changeMonth(offset) {
+            var candidate = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1, 12, 0, 0, 0);
+            if (monthIndex(candidate) < monthIndex(minimumMonth) || monthIndex(candidate) > monthIndex(maximumMonth)) {
+                return;
+            }
+
+            visibleMonth = candidate;
+            renderCalendar();
+        }
+
+        input.hidden = true;
+        trigger.hidden = false;
+        updateTrigger();
+
+        trigger.addEventListener('click', function () {
+            setOpen(calendar.hidden);
+        });
+
+        previousButton.addEventListener('click', function () {
+            changeMonth(-1);
+        });
+
+        nextButton.addEventListener('click', function () {
+            changeMonth(1);
+        });
+
+        grid.addEventListener('click', function (event) {
+            var button = event.target.closest('button[data-date]');
+            if (!button) return;
+
+            selectedDate = parseDate(button.dataset.date);
+            input.value = button.dataset.date;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            updateTrigger();
+            setOpen(false);
+            trigger.focus();
+        });
+
+        clearButton.addEventListener('click', function () {
+            selectedDate = null;
+            input.value = '';
+            updateTrigger();
+            setOpen(false);
+            trigger.focus();
+        });
+
+        if (label) {
+            label.addEventListener('click', function (event) {
+                event.preventDefault();
+                trigger.focus();
+                setOpen(true);
+            });
+        }
+
+        document.addEventListener('click', function (event) {
+            if (!picker.contains(event.target)) setOpen(false);
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !calendar.hidden) {
+                setOpen(false);
+                trigger.focus();
+            }
+        });
+    });
+}
+
+function initClinicFormWizard() {
+    var form = document.querySelector('[data-clinic-wizard]');
+    if (!form) return;
+
+    var stepElements = Array.from(form.querySelectorAll('[data-wizard-step]'));
+    var progressIndicators = Array.from(document.querySelectorAll('[data-wizard-indicator]'));
+    var stepInput = form.querySelector('[data-wizard-step-input]');
+    var title = document.getElementById('clinic-wizard-step-title');
+    var description = document.getElementById('clinic-wizard-step-description');
+    var masthead = document.querySelector('.clinic-wizard-masthead');
+    var stepMeta = {
+        1: ['Student Information', 'Provide accurate personal and academic information.'],
+        2: ['Parent / Guardian Information', 'Add guardian and emergency contact details.'],
+        3: ['Past History', 'Record medical history, medicines, and allergies.'],
+        4: ['Consent Form', 'Review the consent document and download a copy.']
+    };
+    var currentStep = Math.max(1, Math.min(4, Number(form.dataset.startStep) || 1));
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    form.noValidate = true;
+
+    function fieldsForStep(step) {
+        return stepElements
+            .filter(function (element) { return Number(element.dataset.wizardStep) === step; })
+            .flatMap(function (element) {
+                return Array.from(element.querySelectorAll('input, select, textarea'));
+            })
+            .filter(function (field) { return !field.disabled && field.type !== 'hidden'; });
+    }
+
+    function firstInvalidField(step) {
+        return fieldsForStep(step).find(function (field) { return !field.checkValidity(); }) || null;
+    }
+
+    function showStep(step, shouldFocus) {
+        currentStep = Math.max(1, Math.min(4, step));
+
+        stepElements.forEach(function (element) {
+            element.hidden = Number(element.dataset.wizardStep) !== currentStep;
+        });
+
+        progressIndicators.forEach(function (indicator) {
+            var indicatorStep = Number(indicator.dataset.wizardIndicator);
+            var listItem = indicator.closest('li');
+            listItem.classList.toggle('is-active', indicatorStep === currentStep);
+            listItem.classList.toggle('is-complete', indicatorStep < currentStep);
+            indicator.setAttribute('aria-current', indicatorStep === currentStep ? 'step' : 'false');
+        });
+
+        if (stepInput) stepInput.value = String(currentStep);
+        if (title) title.textContent = stepMeta[currentStep][0];
+        if (description) description.textContent = stepMeta[currentStep][1];
+
+        if (shouldFocus && masthead) {
+            masthead.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+        }
+    }
+
+    form.addEventListener('click', function (event) {
+        var nextButton = event.target.closest('[data-wizard-next]');
+        var backButton = event.target.closest('[data-wizard-back]');
+
+        if (nextButton) {
+            var invalidField = firstInvalidField(currentStep);
+            if (invalidField) {
+                invalidField.reportValidity();
+                invalidField.focus();
+                return;
+            }
+            showStep(currentStep + 1, true);
+        }
+
+        if (backButton) {
+            showStep(currentStep - 1, true);
+        }
+    });
+
+    form.addEventListener('submit', function (event) {
+        for (var step = 1; step <= 4; step++) {
+            var invalidField = firstInvalidField(step);
+            if (invalidField) {
+                event.preventDefault();
+                showStep(step, true);
+                invalidField.reportValidity();
+                invalidField.focus();
+                return;
+            }
+        }
+    });
+
+    showStep(currentStep, false);
+}
+
+function initReportDialogs() {
+    var dialogs = Array.from(document.querySelectorAll('.reports-dialog'));
+    if (dialogs.length === 0) return;
+
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    function openDialog(dialog, trigger) {
+        if (!dialog || dialog.open) return;
+
+        dialog.reportTrigger = trigger || null;
+        dialog.showModal();
+        document.body.classList.add('reports-dialog-open');
+
+        var initialFocus = dialog.querySelector('[autofocus]');
+        if (initialFocus) {
+            window.requestAnimationFrame(function () {
+                if (dialog.open) initialFocus.focus({ preventScroll: true });
+            });
+        }
+
+        var shell = dialog.querySelector('.reports-dialog-shell');
+        if (shell && window.gsap && !reduceMotion) {
+            window.gsap.fromTo(shell,
+                { opacity: 0, y: 22, scale: 0.98 },
+                { opacity: 1, y: 0, scale: 1, duration: 0.32, ease: 'power3.out', clearProps: 'transform,opacity' }
+            );
+        }
+    }
+
+    function closeDialog(dialog) {
+        if (!dialog || !dialog.open) return;
+
+        var shell = dialog.querySelector('.reports-dialog-shell');
+        if (shell && window.gsap && !reduceMotion) {
+            window.gsap.killTweensOf(shell);
+            window.gsap.to(shell, {
+                opacity: 0,
+                y: 12,
+                scale: 0.985,
+                duration: 0.16,
+                ease: 'power2.in',
+                onComplete: function () {
+                    dialog.close();
+                    window.gsap.set(shell, { clearProps: 'transform,opacity,visibility' });
+                }
+            });
+            return;
+        }
+
+        dialog.close();
+    }
+
+    document.querySelectorAll('[data-report-dialog-open]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            openDialog(document.getElementById(this.dataset.reportDialogOpen), this);
+        });
+    });
+
+    dialogs.forEach(function (dialog) {
+        dialog.querySelectorAll('[data-report-dialog-close]').forEach(function (button) {
+            button.addEventListener('click', function () { closeDialog(dialog); });
+        });
+
+        dialog.addEventListener('click', function (event) {
+            if (event.target === dialog) closeDialog(dialog);
+        });
+
+        dialog.addEventListener('close', function () {
+            if (!dialogs.some(function (candidate) { return candidate.open; })) {
+                document.body.classList.remove('reports-dialog-open');
+            }
+            if (dialog.reportTrigger && dialog.reportTrigger.isConnected) {
+                dialog.reportTrigger.focus();
+            }
+            dialog.reportTrigger = null;
+        });
+
+        if (dialog.hasAttribute('data-report-dialog-auto-open')) {
+            openDialog(dialog, null);
+        }
+    });
+}
+
+function initReportPrint() {
+    var printButton = document.querySelector('[data-print-report]');
+    if (!printButton) return;
+
+    printButton.addEventListener('click', function () {
+        window.print();
     });
 }

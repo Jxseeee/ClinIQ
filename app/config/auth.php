@@ -16,10 +16,12 @@ function isLoggedIn(): bool
 
 function currentUser(): ?array
 {
+    $role = $_SESSION['role'] ?? '';
+
     return isLoggedIn() ? [
         'id'   => $_SESSION['user_id'],
-        'role' => $_SESSION['role'],
-        'name' => $_SESSION['user_name'] ?? '',
+        'role' => $role,
+        'name' => $role === 'admin' ? 'Admin' : ($_SESSION['user_name'] ?? ''),
     ] : null;
 }
 

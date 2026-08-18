@@ -5,7 +5,8 @@ USE Clinic;
 DROP TABLE IF EXISTS ChatQueue;
 DROP TABLE IF EXISTS ActiveChatSessions;
 DROP TABLE IF EXISTS Notifications;
-DROP TABLE IF EXISTS Appointments;
+DROP TABLE IF EXISTS ClinicOccupancy;
+DROP TABLE IF EXISTS Medicines;
 DROP TABLE IF EXISTS ClinicVisits;
 DROP TABLE IF EXISTS ChatConversations;
 DROP TABLE IF EXISTS Messages;
@@ -46,6 +47,13 @@ CREATE TABLE Students (
     CustodialParent VARCHAR(20),
     CorrespondenceTo VARCHAR(20),
     ConsentImagePath VARCHAR(255),
+    ProfileImagePath VARCHAR(255),
+    ConsentFirstAid TINYINT(1) NULL,
+    ConsentNonPrescription TINYINT(1) NULL,
+    ConsentHospitalization TINYINT(1) NULL,
+    EmergencyDecisionConsent TINYINT(1) NOT NULL DEFAULT 0,
+    EmergencyCallGuardian TINYINT(1) NOT NULL DEFAULT 0,
+    EmergencyOther VARCHAR(255),
 
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -80,6 +88,7 @@ CREATE TABLE Admins (
     Username VARCHAR(50) UNIQUE NOT NULL,
     Password VARCHAR(255) NOT NULL,
     FullName VARCHAR(100) NOT NULL,
+    ProfileImagePath VARCHAR(255),
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -124,6 +133,7 @@ CREATE TABLE ClinicVisits (
     Vitals VARCHAR(255),
     Assessment TEXT,
     Treatment TEXT,
+    MedicineGiven VARCHAR(255),
     Status ENUM('open', 'completed', 'follow-up') NOT NULL DEFAULT 'completed',
     Disposition VARCHAR(100),
     FollowUpDate DATE NULL,
@@ -134,21 +144,40 @@ CREATE TABLE ClinicVisits (
     INDEX idx_clinic_visits_student_created (StudentID, CreatedAt)
 );
 
-CREATE TABLE Appointments (
-    AppointmentID INT AUTO_INCREMENT PRIMARY KEY,
-    StudentID INT NOT NULL,
-    RequestedFor DATETIME NOT NULL,
-    Reason TEXT NOT NULL,
-    Status ENUM('pending', 'approved', 'declined', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
-    AdminNotes TEXT,
-    HandledByAdminID INT NULL,
+CREATE TABLE Medicines (
+    MedicineID INT AUTO_INCREMENT PRIMARY KEY,
+    Name VARCHAR(120) NOT NULL UNIQUE,
+    Stock INT UNSIGNED NOT NULL DEFAULT 0,
+    Dosage VARCHAR(120),
+    Description VARCHAR(255),
+    LowStockThreshold INT UNSIGNED NOT NULL DEFAULT 20,
+    CreatedByAdminID INT NULL,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
-    FOREIGN KEY (HandledByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
-    INDEX idx_appointments_status_requested (Status, RequestedFor),
-    INDEX idx_appointments_student_created (StudentID, CreatedAt)
+    FOREIGN KEY (CreatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
+    INDEX idx_medicines_stock (Stock, LowStockThreshold)
 );
+
+INSERT INTO Medicines (Name, Stock, Dosage, Description, LowStockThreshold, CreatedByAdminID) VALUES
+('Paracetamol', 80, '500 mg tablet', 'Used for mild to moderate pain and fever.', 20, 1),
+('Ibuprofen', 18, '200 mg tablet', 'Used for pain and inflammation.', 20, 1),
+('Cetirizine', 12, '10 mg tablet', 'Allergy relief medication.', 20, 1),
+('Bandage', 77, 'Sterile bandage', 'Used to cover and protect minor wounds.', 20, 1),
+('Ferrous Sulfate', 67, '30 mg tablet', 'Used to support iron deficiency care.', 20, 1),
+('Oral Rehydration Salts', 15, 'One sachet', 'Used to help prevent dehydration.', 20, 1);
+
+CREATE TABLE ClinicOccupancy (
+    OccupancyID TINYINT PRIMARY KEY DEFAULT 1,
+    NursesOnDuty INT UNSIGNED NOT NULL DEFAULT 0,
+    StudentsInClinic INT UNSIGNED NOT NULL DEFAULT 0,
+    UpdatedByAdminID INT NULL,
+    UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (UpdatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
+    CONSTRAINT chk_single_occupancy_row CHECK (OccupancyID = 1)
+);
+
+INSERT INTO ClinicOccupancy (OccupancyID, NursesOnDuty, StudentsInClinic)
+VALUES (1, 0, 0);
 
 CREATE TABLE Notifications (
     NotificationID INT AUTO_INCREMENT PRIMARY KEY,
@@ -181,7 +210,7 @@ CREATE TABLE ChatQueue (
 
 -- Default admin account (username: admin, password: admin123)
 INSERT INTO Admins (Username, Password, FullName)
-VALUES ('admin', '$2y$10$wmDKaC1keu.3.gLKoiMgGe6.o41USYZRn1TU3N6WpbeNW4HERwB46', 'System Administrator');
+VALUES ('admin', '$2y$10$wmDKaC1keu.3.gLKoiMgGe6.o41USYZRn1TU3N6WpbeNW4HERwB46', 'Admin');
 
 -- Test student account (StudentID: 10001, password: student123)
 INSERT INTO Students (
@@ -192,7 +221,7 @@ INSERT INTO Students (
     MedicationsRegular, AllergyFood, AllergyMedicine, AllergyOthers,
     CustodialParent, CorrespondenceTo
 ) VALUES (
-    10001, 'Juan', 'Dela Cruz', 'Santos', 'juan.delacruz@university.edu.ph', '0917-123-4567',
+    10001, 'Juan', 'Dela Cruz', 'Santos', 'juan.delacruz@fcat.com.ph', '0917-123-4567',
     '$2y$10$D1/kLLW8lhu9FSRBrdS1yOaIbw/o4lHt3nQAZBZBBmmcV2WfRwb7q', 0,
     'Bachelor of Science in Information Technology', '2nd Year', 'College of Computing',
     'Juan', '2003-05-15', 'Filipino', 'Male', '1.70', '65',

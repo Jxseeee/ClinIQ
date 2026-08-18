@@ -19,8 +19,12 @@ $illnesses = [
 ];
 
 $errors = [];
+$wizardStartStep = 1;
+$clinicTimezone = new DateTimeZone('Asia/Manila');
+$maximumBirthDate = new DateTimeImmutable('today', $clinicTimezone);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrfToken();
     $f = fn($key) => trim($_POST[$key] ?? '');
 
     $course      = $f('course');
@@ -35,18 +39,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $g1FirstName = $f('g1_first_name');
     $g1Mobile    = $f('g1_mobile');
 
-    if ($course === '')      $errors[] = 'Course is required.';
-    if ($yearLevel === '')   $errors[] = 'Year Level is required.';
-    if ($department === '')  $errors[] = 'Department is required.';
-    if ($dob === '')         $errors[] = 'Date of Birth is required.';
-    if ($gender === '')      $errors[] = 'Gender is required.';
-    if ($streetAddress === '') $errors[] = 'Street Address is required.';
-    if ($municipality === '')  $errors[] = 'Municipality is required.';
-    if ($city === '')          $errors[] = 'City is required.';
-    if ($g1LastName === '' || $g1FirstName === '') {
-        $errors[] = 'Guardian 1 name is required.';
+    $stepOneErrors = [];
+    $stepTwoErrors = [];
+
+    if ($course === '')      $stepOneErrors[] = 'Course is required.';
+    if ($yearLevel === '')   $stepOneErrors[] = 'Year Level is required.';
+    if ($department === '')  $stepOneErrors[] = 'Department is required.';
+    if ($dob === '') {
+        $stepOneErrors[] = 'Date of Birth is required.';
+    } else {
+        $birthDate = DateTimeImmutable::createFromFormat('!Y-m-d', $dob, $clinicTimezone);
+        if (!$birthDate || $birthDate->format('Y-m-d') !== $dob) {
+            $stepOneErrors[] = 'Please choose a valid Date of Birth.';
+        } elseif ($birthDate > $maximumBirthDate) {
+            $stepOneErrors[] = 'Date of Birth cannot be in the future.';
+        }
     }
-    if ($g1Mobile === '') $errors[] = 'Guardian 1 mobile number is required.';
+    if ($gender === '')      $stepOneErrors[] = 'Gender is required.';
+    if ($streetAddress === '') $stepOneErrors[] = 'Street Address is required.';
+    if ($municipality === '')  $stepOneErrors[] = 'Municipality is required.';
+    if ($city === '')          $stepOneErrors[] = 'City is required.';
+    if ($g1LastName === '' || $g1FirstName === '') {
+        $stepTwoErrors[] = 'Guardian 1 name is required.';
+    }
+    if ($g1Mobile === '') $stepTwoErrors[] = 'Guardian 1 mobile number is required.';
+
+    $errors = array_merge($stepOneErrors, $stepTwoErrors);
+    $wizardStartStep = !empty($stepOneErrors) ? 1 : (!empty($stepTwoErrors) ? 2 : 1);
 
     if (empty($errors)) {
         try {
@@ -108,13 +127,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             $errors[] = 'Database error: ' . $e->getMessage();
+            $wizardStartStep = max(1, min(4, (int) ($_POST['wizard_step'] ?? 1)));
         }
     }
 }
 
-$v = fn($key) => htmlspecialchars($student[$key] ?? '');
+$postFieldMap = [
+    'MiddleName' => 'middle_name', 'Course' => 'course', 'YearLevel' => 'year_level',
+    'Department' => 'department', 'PreferredName' => 'preferred_name', 'DateOfBirth' => 'date_of_birth',
+    'Citizenship' => 'citizenship', 'Gender' => 'gender', 'Height' => 'height', 'Weight' => 'weight',
+    'HomeTelephone' => 'home_telephone', 'StreetAddress' => 'street_address',
+    'Municipality' => 'municipality', 'City' => 'city', 'MedicationsRegular' => 'medications_regular',
+    'AllergyFood' => 'allergy_food', 'AllergyMedicine' => 'allergy_medicine', 'AllergyOthers' => 'allergy_others',
+    'CustodialParent' => 'custodial_parent', 'CorrespondenceTo' => 'correspondence_to',
+];
+$rawStudentValue = static function (string $key) use ($student, $postFieldMap): string {
+    $postKey = $postFieldMap[$key] ?? '';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && $postKey !== '' && array_key_exists($postKey, $_POST)) {
+        return trim((string) $_POST[$postKey]);
+    }
+    return (string) ($student[$key] ?? '');
+};
+$v = fn($key) => htmlspecialchars($rawStudentValue($key));
 $gv = fn($arr, $key) => htmlspecialchars($arr[$key] ?? '');
+$wizardStepMeta = [
+    1 => ['Student Information', 'Provide accurate personal and academic information.'],
+    2 => ['Parent / Guardian Information', 'Add guardian and emergency contact details.'],
+    3 => ['Past History', 'Record medical history, medicines, and allergies.'],
+    4 => ['Consent Form', 'Review the consent document and download a copy.'],
+];
 $studentPageTitle = 'Clinic Form';
+$studentContentClass = 'clinic-wizard-content';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -123,13 +166,37 @@ $studentPageTitle = 'Clinic Form';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Profile</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
-    <div class="dashboard-content-card">
-        <h1>School Clinic Form</h1>
+    <div class="clinic-wizard-page">
+        <a href="profile.php" class="clinic-wizard-back">&larr; My Profile</a>
+
+        <ol class="clinic-wizard-progress" aria-label="Clinic form progress">
+            <?php foreach ($wizardStepMeta as $stepNumber => [$stepTitle]): ?>
+                <li class="<?= $stepNumber < $wizardStartStep ? 'is-complete' : ($stepNumber === $wizardStartStep ? 'is-active' : '') ?>">
+                    <span class="clinic-wizard-node" data-wizard-indicator="<?= $stepNumber ?>"
+                          aria-label="Step <?= $stepNumber ?>: <?= htmlspecialchars($stepTitle) ?>">
+                        <?= $stepNumber ?>
+                    </span>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+
+        <header class="clinic-wizard-masthead">
+            <img src="../public/assets/images/favicon.png" alt="FCAT Clinic logo" class="clinic-wizard-logo">
+            <div>
+                <h1 class="clinic-wizard-title">FCAT School Clinic Form 01</h1>
+                <p id="clinic-wizard-step-title"><?= htmlspecialchars($wizardStepMeta[$wizardStartStep][0]) ?></p>
+                <small id="clinic-wizard-step-description"><?= htmlspecialchars($wizardStepMeta[$wizardStartStep][1]) ?></small>
+            </div>
+            <span class="clinic-wizard-visual" aria-hidden="true">
+                <img src="../public/assets/images/Vector%201.png" alt="" class="clinic-wizard-vector">
+                <img src="../public/assets/images/asset1.png" alt="" class="clinic-wizard-visual-image">
+            </span>
+        </header>
 
         <?php if (isset($_GET['success'])): ?>
             <div class="alert alert-success">Profile updated successfully.</div>
@@ -144,10 +211,13 @@ $studentPageTitle = 'Clinic Form';
             </div>
         <?php endif; ?>
 
-        <form method="POST" action="">
+                <form method="POST" action="" class="clinic-wizard-form"
+                            data-clinic-wizard data-start-step="<?= $wizardStartStep ?>">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                        <input type="hidden" name="wizard_step" value="<?= $wizardStartStep ?>" data-wizard-step-input>
 
         <!-- ── SECTION 1: Student Information ── -->
-        <div class="card form-section">
+                <section class="card form-section clinic-wizard-step" data-wizard-step="1">
             <h2>Student Information</h2>
             <div class="form-row form-row-3">
                 <div class="form-group">
@@ -160,40 +230,69 @@ $studentPageTitle = 'Clinic Form';
                 </div>
                 <div class="form-group">
                     <label>Middle Name</label>
-                    <input type="text" name="middle_name" value="<?= $v('MiddleName') ?>">
+                    <input type="text" name="middle_name" value="<?= $v('MiddleName') ?>" placeholder="e.g. Santos">
                 </div>
             </div>
             <div class="form-row form-row-3">
                 <div class="form-group">
                     <label>Course *</label>
-                    <input type="text" name="course" value="<?= $v('Course') ?>" required>
+                    <input type="text" name="course" value="<?= $v('Course') ?>" placeholder="e.g. Bachelor of Science in Information Technology" required>
                 </div>
                 <div class="form-group">
                     <label>Year Level *</label>
                     <select name="year_level" required>
                         <option value="">Select</option>
-                        <?php foreach (['1st Year','2nd Year','3rd Year','4th Year','5th Year'] as $yr): ?>
-                            <option value="<?= $yr ?>" <?= ($student['YearLevel'] ?? '') === $yr ? 'selected' : '' ?>><?= $yr ?></option>
+                        <?php foreach (['1st Year','2nd Year','3rd Year','4th Year'] as $yr): ?>
+                            <option value="<?= $yr ?>" <?= $rawStudentValue('YearLevel') === $yr ? 'selected' : '' ?>><?= $yr ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Department *</label>
-                    <input type="text" name="department" value="<?= $v('Department') ?>" required>
+                    <input type="text" name="department" value="<?= $v('Department') ?>" placeholder="e.g. College of Computing" required>
                 </div>
             </div>
             <div class="form-row form-row-3">
                 <div class="form-group">
                     <label>Preferred Name</label>
-                    <input type="text" name="preferred_name" value="<?= $v('PreferredName') ?>">
+                    <input type="text" name="preferred_name" value="<?= $v('PreferredName') ?>" placeholder="e.g. Juan">
                 </div>
                 <div class="form-group">
-                    <label>Date of Birth *</label>
-                    <input type="date" name="date_of_birth" value="<?= $v('DateOfBirth') ?>" required>
+                    <label for="date_of_birth" id="birth-date-label">Date of Birth *</label>
+                    <div class="birth-date-picker" data-birth-date-picker
+                         data-min-date="1900-01-01"
+                         data-max-date="<?= $maximumBirthDate->format('Y-m-d') ?>">
+                        <input type="date" id="date_of_birth" name="date_of_birth" value="<?= $v('DateOfBirth') ?>"
+                               min="1900-01-01" max="<?= $maximumBirthDate->format('Y-m-d') ?>" required>
+                        <button type="button" class="birth-date-trigger" id="birth_date_trigger"
+                                aria-haspopup="dialog" aria-controls="birth-date-calendar"
+                                aria-expanded="false" aria-labelledby="birth-date-label birth-date-display" hidden>
+                            <span class="birth-date-icon" aria-hidden="true"><?= studentDashboardIcon('calendar') ?></span>
+                            <span id="birth-date-display">Select birth date</span>
+                            <span class="birth-date-chevron" aria-hidden="true">&#9662;</span>
+                        </button>
+                        <div class="birth-date-calendar" id="birth-date-calendar"
+                             role="dialog" aria-label="Choose Date of Birth" hidden>
+                            <div class="birth-date-calendar-header">
+                                <label>
+                                    <span>Month</span>
+                                    <select data-birth-month aria-label="Birth month"></select>
+                                </label>
+                                <label>
+                                    <span>Year</span>
+                                    <select data-birth-year aria-label="Birth year"></select>
+                                </label>
+                            </div>
+                            <div class="birth-date-calendar-weekdays" aria-hidden="true">
+                                <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                            </div>
+                            <div class="birth-date-calendar-grid" role="grid" aria-label="Birth date calendar days"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Citizenship</label>
-                    <input type="text" name="citizenship" value="<?= $v('Citizenship') ?>">
+                    <input type="text" name="citizenship" value="<?= $v('Citizenship') ?>" placeholder="e.g. Filipino">
                 </div>
             </div>
             <div class="form-row form-row-4">
@@ -202,7 +301,7 @@ $studentPageTitle = 'Clinic Form';
                     <select name="gender" required>
                         <option value="">Select</option>
                         <?php foreach (['Male','Female','Other'] as $g): ?>
-                            <option value="<?= $g ?>" <?= ($student['Gender'] ?? '') === $g ? 'selected' : '' ?>><?= $g ?></option>
+                            <option value="<?= $g ?>" <?= $rawStudentValue('Gender') === $g ? 'selected' : '' ?>><?= $g ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -216,7 +315,7 @@ $studentPageTitle = 'Clinic Form';
                 </div>
                 <div class="form-group">
                     <label>Home Telephone</label>
-                    <input type="text" name="home_telephone" value="<?= $v('HomeTelephone') ?>" class="phone-input">
+                    <input type="text" name="home_telephone" value="<?= $v('HomeTelephone') ?>" placeholder="0000-000" class="phone-input">
                 </div>
             </div>
             <div class="form-group">
@@ -226,17 +325,21 @@ $studentPageTitle = 'Clinic Form';
             <div class="form-row form-row-2">
                 <div class="form-group">
                     <label>Municipality *</label>
-                    <input type="text" name="municipality" value="<?= $v('Municipality') ?>" class="text-only" required>
+                    <input type="text" name="municipality" value="<?= $v('Municipality') ?>" placeholder="e.g. Bacoor" class="text-only" required>
                 </div>
                 <div class="form-group">
                     <label>City *</label>
-                    <input type="text" name="city" value="<?= $v('City') ?>" class="text-only" required>
+                    <input type="text" name="city" value="<?= $v('City') ?>" placeholder="e.g. Cavite" class="text-only" required>
                 </div>
             </div>
-        </div>
+            <div class="clinic-wizard-actions">
+                <span></span>
+                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+            </div>
+        </section>
 
         <!-- ── SECTION 2: Parent / Guardian Information ── -->
-        <div class="card form-section">
+        <section class="card form-section clinic-wizard-step" data-wizard-step="2" hidden>
             <h2>Parent / Guardian Information</h2>
             <div class="guardian-columns">
                 <!-- Guardian 1 -->
@@ -245,44 +348,45 @@ $studentPageTitle = 'Clinic Form';
                     <div class="form-group">
                         <label>Relationship</label>
                         <select name="g1_relationship">
-                            <option value="">Select</option>
-                            <?php foreach (['Father','Stepfather','Legal Guardian'] as $r): ?>
-                                <option value="<?= $r ?>" <?= ($g1['Relationship'] ?? '') === $r ? 'selected' : '' ?>><?= $r ?></option>
+                            <option value="">Select role</option>
+                            <?php foreach (['Mother','Father','Guardian'] as $r): ?>
+                                <?php $g1RelationshipSelected = normalizeGuardianRelationship($g1['Relationship'] ?? '') === $r; ?>
+                                <option value="<?= $r ?>" <?= $g1RelationshipSelected ? 'selected' : '' ?>><?= $r ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Last Name *</label>
-                        <input type="text" name="g1_last_name" value="<?= $gv($g1, 'LastName') ?>" required>
+                        <input type="text" name="g1_last_name" value="<?= $gv($g1, 'LastName') ?>" placeholder="e.g. Dela Cruz" required>
                     </div>
                     <div class="form-group">
                         <label>First Name *</label>
-                        <input type="text" name="g1_first_name" value="<?= $gv($g1, 'FirstName') ?>" required>
+                        <input type="text" name="g1_first_name" value="<?= $gv($g1, 'FirstName') ?>" placeholder="e.g. Maria" required>
                     </div>
                     <div class="form-group">
                         <label>Middle Name</label>
-                        <input type="text" name="g1_middle_name" value="<?= $gv($g1, 'MiddleName') ?>">
+                        <input type="text" name="g1_middle_name" value="<?= $gv($g1, 'MiddleName') ?>" placeholder="e.g. S.">
                     </div>
                     <div class="form-group">
                         <label>Office Phone</label>
-                        <input type="text" name="g1_office_phone" value="<?= $gv($g1, 'OfficePhone') ?>" class="phone-input">
+                        <input type="text" name="g1_office_phone" value="<?= $gv($g1, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number *</label>
-                        <input type="text" name="g1_mobile" value="<?= $gv($g1, 'MobileNumber') ?>" class="phone-input" required>
+                        <input type="text" name="g1_mobile" value="<?= $gv($g1, 'MobileNumber') ?>" placeholder="09XXXXXXXXX" class="phone-input" required>
                     </div>
                     <div class="form-group">
                         <label>Email Address</label>
-                        <input type="email" name="g1_email" value="<?= $gv($g1, 'EmailAddress') ?>">
+                        <input type="email" name="g1_email" value="<?= $gv($g1, 'EmailAddress') ?>" placeholder="someone@gmail.com">
                     </div>
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g1_emergency_name" value="<?= $gv($g1, 'EmergencyContactName') ?>">
+                        <input type="text" name="g1_emergency_name" value="<?= $gv($g1, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g1_emergency_mobile" value="<?= $gv($g1, 'EmergencyContactMobile') ?>" class="phone-input">
+                        <input type="text" name="g1_emergency_mobile" value="<?= $gv($g1, 'EmergencyContactMobile') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                 </div>
 
@@ -292,44 +396,45 @@ $studentPageTitle = 'Clinic Form';
                     <div class="form-group">
                         <label>Relationship</label>
                         <select name="g2_relationship">
-                            <option value="">Select</option>
-                            <?php foreach (['Mother','Stepmother','Legal Guardian'] as $r): ?>
-                                <option value="<?= $r ?>" <?= ($g2['Relationship'] ?? '') === $r ? 'selected' : '' ?>><?= $r ?></option>
+                            <option value="">Select role</option>
+                            <?php foreach (['Mother','Father','Guardian'] as $r): ?>
+                                <?php $g2RelationshipSelected = normalizeGuardianRelationship($g2['Relationship'] ?? '') === $r; ?>
+                                <option value="<?= $r ?>" <?= $g2RelationshipSelected ? 'selected' : '' ?>><?= $r ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Last Name</label>
-                        <input type="text" name="g2_last_name" value="<?= $gv($g2, 'LastName') ?>">
+                        <input type="text" name="g2_last_name" value="<?= $gv($g2, 'LastName') ?>" placeholder="e.g. Dela Cruz">
                     </div>
                     <div class="form-group">
                         <label>First Name</label>
-                        <input type="text" name="g2_first_name" value="<?= $gv($g2, 'FirstName') ?>">
+                        <input type="text" name="g2_first_name" value="<?= $gv($g2, 'FirstName') ?>" placeholder="e.g. Maria">
                     </div>
                     <div class="form-group">
                         <label>Middle Name</label>
-                        <input type="text" name="g2_middle_name" value="<?= $gv($g2, 'MiddleName') ?>">
+                        <input type="text" name="g2_middle_name" value="<?= $gv($g2, 'MiddleName') ?>" placeholder="e.g. S.">
                     </div>
                     <div class="form-group">
                         <label>Office Phone</label>
-                        <input type="text" name="g2_office_phone" value="<?= $gv($g2, 'OfficePhone') ?>" class="phone-input">
+                        <input type="text" name="g2_office_phone" value="<?= $gv($g2, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g2_mobile" value="<?= $gv($g2, 'MobileNumber') ?>" class="phone-input">
+                        <input type="text" name="g2_mobile" value="<?= $gv($g2, 'MobileNumber') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                     <div class="form-group">
                         <label>Email Address</label>
-                        <input type="email" name="g2_email" value="<?= $gv($g2, 'EmailAddress') ?>">
+                        <input type="email" name="g2_email" value="<?= $gv($g2, 'EmailAddress') ?>" placeholder="someone@gmail.com">
                     </div>
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g2_emergency_name" value="<?= $gv($g2, 'EmergencyContactName') ?>">
+                        <input type="text" name="g2_emergency_name" value="<?= $gv($g2, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g2_emergency_mobile" value="<?= $gv($g2, 'EmergencyContactMobile') ?>" class="phone-input">
+                        <input type="text" name="g2_emergency_mobile" value="<?= $gv($g2, 'EmergencyContactMobile') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                 </div>
             </div>
@@ -340,7 +445,7 @@ $studentPageTitle = 'Clinic Form';
                     <select name="custodial_parent">
                         <option value="">Select</option>
                         <?php foreach (['Guardian 1' => 'guardian1', 'Guardian 2' => 'guardian2', 'Both' => 'both'] as $label => $val): ?>
-                            <option value="<?= $val ?>" <?= ($student['CustodialParent'] ?? '') === $val ? 'selected' : '' ?>><?= $label ?></option>
+                            <option value="<?= $val ?>" <?= $rawStudentValue('CustodialParent') === $val ? 'selected' : '' ?>><?= $label ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -349,15 +454,19 @@ $studentPageTitle = 'Clinic Form';
                     <select name="correspondence_to">
                         <option value="">Select</option>
                         <?php foreach (['Guardian 1' => 'guardian1', 'Guardian 2' => 'guardian2', 'Both' => 'both'] as $label => $val): ?>
-                            <option value="<?= $val ?>" <?= ($student['CorrespondenceTo'] ?? '') === $val ? 'selected' : '' ?>><?= $label ?></option>
+                            <option value="<?= $val ?>" <?= $rawStudentValue('CorrespondenceTo') === $val ? 'selected' : '' ?>><?= $label ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
             </div>
-        </div>
+            <div class="clinic-wizard-actions">
+                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
+                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+            </div>
+        </section>
 
         <!-- ── SECTION 3: Past Medical History ── -->
-        <div class="card form-section">
+        <section class="card form-section clinic-wizard-step" data-wizard-step="3" hidden>
             <h2>Past Medical History</h2>
             <p class="text-muted">Check any that apply and optionally provide the date and age of diagnosis.</p>
             <div class="illness-grid">
@@ -374,9 +483,10 @@ $studentPageTitle = 'Clinic Form';
                         <span><?= htmlspecialchars($ill) ?></span>
                     </label>
                     <input type="text" name="illness_date_<?= $key ?>" value="<?= htmlspecialchars($savedDate) ?>"
-                           placeholder="Date" class="illness-field">
-                    <input type="number" name="illness_age_<?= $key ?>" value="<?= htmlspecialchars($savedAge) ?>"
-                           placeholder="Age" class="illness-field illness-age" min="0">
+                              placeholder="mm/dd/yyyy" class="illness-field">
+                          <input type="text" name="illness_age_<?= $key ?>" value="<?= htmlspecialchars($savedAge) ?>"
+                              placeholder="Age" class="illness-field illness-age integer-input"
+                              inputmode="numeric" pattern="[0-9]{1,3}" maxlength="3">
                 </div>
                 <?php endforeach; ?>
             </div>
@@ -385,31 +495,57 @@ $studentPageTitle = 'Clinic Form';
                 <label>Medication/s taken on a regular basis</label>
                 <textarea name="medications_regular" rows="2"><?= $v('MedicationsRegular') ?></textarea>
             </div>
-        </div>
+        </section>
 
         <!-- ── SECTION 4: Allergies ── -->
-        <div class="card form-section">
+        <section class="card form-section clinic-wizard-step clinic-wizard-allergies" data-wizard-step="3" hidden>
             <h2>Allergies</h2>
             <div class="form-row form-row-3">
                 <div class="form-group">
                     <label>Food</label>
-                    <input type="text" name="allergy_food" value="<?= $v('AllergyFood') ?>">
+                    <input type="text" name="allergy_food" value="<?= $v('AllergyFood') ?>" placeholder="Please specify">
                 </div>
                 <div class="form-group">
                     <label>Medicine</label>
-                    <input type="text" name="allergy_medicine" value="<?= $v('AllergyMedicine') ?>">
+                    <input type="text" name="allergy_medicine" value="<?= $v('AllergyMedicine') ?>" placeholder="Please specify">
                 </div>
                 <div class="form-group">
                     <label>Others</label>
-                    <input type="text" name="allergy_others" value="<?= $v('AllergyOthers') ?>">
+                    <input type="text" name="allergy_others" value="<?= $v('AllergyOthers') ?>" placeholder="Please specify">
                 </div>
             </div>
-        </div>
+            <div class="clinic-wizard-actions">
+                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
+                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+            </div>
+        </section>
 
-        <div class="form-actions" style="margin-top:10px; margin-bottom:40px;">
-            <button type="submit" class="btn btn-success">Save Profile</button>
-            <a href="profile.php" class="btn btn-secondary">Cancel</a>
-        </div>
+        <section class="card form-section clinic-wizard-step clinic-wizard-consent" data-wizard-step="4" hidden>
+            <h2>Consent Form</h2>
+            <div class="clinic-consent-grid clinic-consent-preview" aria-label="Consent form preview">
+                <div class="clinic-consent-column">
+                    <p>I give consent for my child to receive the following:</p>
+                    <div class="clinic-consent-display-row"><span>First aid treatment at the school clinic</span><strong>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</strong></div>
+                    <div class="clinic-consent-display-row"><span>Non-prescription medicine in case of emergency</span><strong>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</strong></div>
+                    <div class="clinic-consent-display-row"><span>Hospitalization when emergency care is required</span><strong>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</strong></div>
+                </div>
+
+                <div class="clinic-consent-column">
+                    <p>I acknowledge that it is my responsibility to inform the FCAT clinic of updates to my medical records.</p>
+                    <p>In an emergency, I ask the clinic to:</p>
+                    <p class="clinic-consent-display-check">☐ Make the immediate care decision needed for the learner.</p>
+                    <p class="clinic-consent-display-check">☐ Call the parent or guardian first.</p>
+                    <p class="clinic-consent-display-check">☐ Other: ______________________________</p>
+                </div>
+            </div>
+            <div class="clinic-wizard-actions">
+                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
+                <div class="clinic-wizard-final-actions">
+                    <a href="download-consent-form.php" class="btn btn-secondary clinic-consent-download"><?= studentDashboardIcon('file') ?> Download consent form</a>
+                    <button type="submit" class="btn btn-success">Save clinic form</button>
+                </div>
+            </div>
+        </section>
 
         </form>
     </div>

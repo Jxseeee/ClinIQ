@@ -79,7 +79,7 @@ $studentContentClass = 'patient-records-content';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -135,11 +135,14 @@ $studentContentClass = 'patient-records-content';
             <div class="paper-section">
                 <h2>Parent/Guardian Information</h2>
                 <table class="paper-table">
-                    <tr><td><?= ($g1['Relationship'] ?? '') === 'Father' ? '☑' : '☐' ?> Father &nbsp; <?= ($g1['Relationship'] ?? '') === 'Stepfather' ? '☑' : '☐' ?> Stepfather &nbsp; <?= ($g1['Relationship'] ?? '') === 'Legal Guardian' ? '☑' : '☐' ?> Legal Guardian</td><td><?= ($g2['Relationship'] ?? '') === 'Mother' ? '☑' : '☐' ?> Mother &nbsp; <?= ($g2['Relationship'] ?? '') === 'Stepmother' ? '☑' : '☐' ?> Stepmother &nbsp; <?= ($g2['Relationship'] ?? '') === 'Legal Guardian' ? '☑' : '☐' ?> Legal Guardian</td></tr>
+                    <tr><td><?= guardianRelationshipMarks($g1['Relationship'] ?? '') ?></td><td><?= guardianRelationshipMarks($g2['Relationship'] ?? '') ?></td></tr>
                     <tr><td>Last Name: <?= htmlspecialchars($g1['LastName'] ?? '') ?></td><td>Last Name: <?= htmlspecialchars($g2['LastName'] ?? '') ?></td></tr>
                     <tr><td>First Name: <?= htmlspecialchars($g1['FirstName'] ?? '') ?></td><td>First Name: <?= htmlspecialchars($g2['FirstName'] ?? '') ?></td></tr>
+                    <tr><td>Office Phone: <?= htmlspecialchars($g1['OfficePhone'] ?? '') ?></td><td>Office Phone: <?= htmlspecialchars($g2['OfficePhone'] ?? '') ?></td></tr>
                     <tr><td>Mobile Number: <?= htmlspecialchars($g1['MobileNumber'] ?? '') ?></td><td>Mobile Number: <?= htmlspecialchars($g2['MobileNumber'] ?? '') ?></td></tr>
                     <tr><td>Email Address: <?= htmlspecialchars($g1['EmailAddress'] ?? '') ?></td><td>Email Address: <?= htmlspecialchars($g2['EmailAddress'] ?? '') ?></td></tr>
+                    <tr><td>Emergency Contact: <?= htmlspecialchars(trim(($g1['EmergencyContactName'] ?? '') . ' ' . ($g1['EmergencyContactMobile'] ?? ''))) ?></td><td>Emergency Contact: <?= htmlspecialchars(trim(($g2['EmergencyContactName'] ?? '') . ' ' . ($g2['EmergencyContactMobile'] ?? ''))) ?></td></tr>
+                    <tr><td>Custodial Parent/Guardian: <?= htmlspecialchars(ucwords(str_replace('guardian', 'Guardian ', $student['CustodialParent'] ?? ''))) ?></td><td>Correspondence To: <?= htmlspecialchars(ucwords(str_replace('guardian', 'Guardian ', $student['CorrespondenceTo'] ?? ''))) ?></td></tr>
                 </table>
             </div>
 
@@ -182,19 +185,22 @@ $studentContentClass = 'patient-records-content';
 
         <section class="student-announcements-panel admin-full-panel clinic-visit-panel">
             <div class="dashboard-section-title">
-                <span><?= studentDashboardIcon('records') ?></span>
+                <span><?= studentDashboardIcon('medical') ?></span>
                 <h2>Clinic Visit History</h2>
             </div>
 
             <?php if (!empty($clinicVisits)): ?>
-                <div class="appointment-card-list">
+                <div class="clinic-visit-card-list">
                     <?php foreach ($clinicVisits as $visit): ?>
-                        <article class="appointment-card">
+                        <article class="clinic-visit-card">
                             <div>
                                 <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
                                 <p><?= htmlspecialchars($visit['Complaint']) ?></p>
                                 <?php if (!empty($visit['Treatment'])): ?>
                                     <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
+                                <?php endif; ?>
+                                <?php if (!empty($visit['MedicineGiven'])): ?>
+                                    <small>Medicine Given: <?= htmlspecialchars($visit['MedicineGiven']) ?></small>
                                 <?php endif; ?>
                             </div>
                             <strong><?= htmlspecialchars(ucfirst($visit['Status'])) ?></strong>
@@ -210,14 +216,14 @@ $studentContentClass = 'patient-records-content';
             <div class="consent-paper-inner">
                 <h2>CONSENT FORM</h2>
                 <p>I give consent for my child to receive the following:</p>
-                <div class="consent-line"><span>First aid treatment at the school clinic</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
-                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
-                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
+                <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks($student['ConsentFirstAid'] ?? null) ?></span></div>
+                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span><?= consentChoiceMarks($student['ConsentNonPrescription'] ?? null) ?></span></div>
+                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span><?= consentChoiceMarks($student['ConsentHospitalization'] ?? null) ?></span></div>
                 <p>I acknowledge that it is my responsibility to inform FCAT school clinic of any update in my child's medical records.</p>
                 <p>Safety and well-being of the learner is the top priority. If in case of emergency, we ask the parents to:</p>
-                <p>☐ give the school consent for the decision to attend the learner's need.</p>
-                <p>☐ call the parents/guardians first.</p>
-                <p>☐ Others: Please Specify ______________________________</p>
+                <p><?= (int) ($student['EmergencyDecisionConsent'] ?? 0) === 1 ? '☑' : '☐' ?> give the school consent for the decision to attend the learner's need.</p>
+                <p><?= (int) ($student['EmergencyCallGuardian'] ?? 0) === 1 ? '☑' : '☐' ?> call the parents/guardians first.</p>
+                <p><?= trim((string) ($student['EmergencyOther'] ?? '')) !== '' ? '☑' : '☐' ?> Others: <?= htmlspecialchars($student['EmergencyOther'] ?? '') ?></p>
                 <div class="consent-signature">
                     <span>Parent's/Guardian's Name: ______________________________</span>
                     <span>Signature: ______________________________</span>

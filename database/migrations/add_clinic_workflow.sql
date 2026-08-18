@@ -1,5 +1,5 @@
 -- Run this if you already have a Clinic database and need clinic visits,
--- appointments, notifications, and chat conversation status.
+-- notifications, and chat conversation status.
 USE Clinic;
 
 CREATE TABLE IF NOT EXISTS ChatConversations (
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS ClinicVisits (
     Vitals VARCHAR(255),
     Assessment TEXT,
     Treatment TEXT,
+    MedicineGiven VARCHAR(255),
     Status ENUM('open', 'completed', 'follow-up') NOT NULL DEFAULT 'completed',
     Disposition VARCHAR(100),
     FollowUpDate DATE NULL,
@@ -30,22 +31,6 @@ CREATE TABLE IF NOT EXISTS ClinicVisits (
     FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
     FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
     INDEX idx_clinic_visits_student_created (StudentID, CreatedAt)
-);
-
-CREATE TABLE IF NOT EXISTS Appointments (
-    AppointmentID INT AUTO_INCREMENT PRIMARY KEY,
-    StudentID INT NOT NULL,
-    RequestedFor DATETIME NOT NULL,
-    Reason TEXT NOT NULL,
-    Status ENUM('pending', 'approved', 'declined', 'completed', 'cancelled') NOT NULL DEFAULT 'pending',
-    AdminNotes TEXT,
-    HandledByAdminID INT NULL,
-    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
-    FOREIGN KEY (HandledByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
-    INDEX idx_appointments_status_requested (Status, RequestedFor),
-    INDEX idx_appointments_student_created (StudentID, CreatedAt)
 );
 
 CREATE TABLE IF NOT EXISTS Notifications (

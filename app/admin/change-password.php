@@ -1,40 +1,65 @@
 <?php
 require __DIR__ . '/../config/auth.php';
+require_once __DIR__ . '/../includes/helpers.php';
 requireAdmin();
 
-$errors = [];
+$passwordErrors = [];
+$photoErrors = [];
 $adminPageTitle = 'Settings';
+$adminId = (int) $_SESSION['user_id'];
+$profileImagePath = fetchProfileImagePath($pdo, 'admin', $adminId);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $oldPass = $_POST['old_password'] ?? '';
-    $newPass = $_POST['new_password'] ?? '';
-    $confirm = $_POST['confirm_password'] ?? '';
+    verifyCsrfToken();
+    $action = $_POST['action'] ?? '';
 
-    $stmt = $pdo->prepare("SELECT Password FROM Admins WHERE AdminID = ?");
-    $stmt->execute([$_SESSION['user_id']]);
-    $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($action === 'upload_profile_image') {
+        try {
+            storeProfileImage($pdo, 'admin', $adminId, $_FILES['profile_image'] ?? []);
+            header('Location: change-password.php?success=photo');
+            exit;
+        } catch (InvalidArgumentException | RuntimeException $error) {
+            $photoErrors[] = $error->getMessage();
+        }
+    } elseif ($action === 'remove_profile_image') {
+        try {
+            removeProfileImage($pdo, 'admin', $adminId);
+            header('Location: change-password.php?success=photo_removed');
+            exit;
+        } catch (RuntimeException $error) {
+            $photoErrors[] = $error->getMessage();
+        }
+    } elseif ($action === 'change_password') {
+        $oldPass = $_POST['old_password'] ?? '';
+        $newPass = $_POST['new_password'] ?? '';
+        $confirm = $_POST['confirm_password'] ?? '';
 
-    if (!password_verify($oldPass, $admin['Password'])) {
-        $errors[] = 'Current password is incorrect.';
-    }
-    if (strlen($newPass) < 8) {
-        $errors[] = 'New password must be at least 8 characters.';
-    }
-    if (!preg_match('/\d/', $newPass)) {
-        $errors[] = 'New password must contain at least one number.';
-    }
-    if (!preg_match('/[^A-Za-z0-9]/', $newPass)) {
-        $errors[] = 'New password must contain at least one special character.';
-    }
-    if ($newPass !== $confirm) {
-        $errors[] = 'New passwords do not match.';
-    }
+        $stmt = $pdo->prepare("SELECT Password FROM Admins WHERE AdminID = ?");
+        $stmt->execute([$adminId]);
+        $admin = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (empty($errors)) {
-        $stmt = $pdo->prepare("UPDATE Admins SET Password = ? WHERE AdminID = ?");
-        $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), $_SESSION['user_id']]);
-        header("Location: change-password.php?success=1");
-        exit;
+        if (!$admin || !password_verify($oldPass, $admin['Password'])) {
+            $passwordErrors[] = 'Current password is incorrect.';
+        }
+        if (strlen($newPass) < 8) {
+            $passwordErrors[] = 'New password must be at least 8 characters.';
+        }
+        if (!preg_match('/\d/', $newPass)) {
+            $passwordErrors[] = 'New password must contain at least one number.';
+        }
+        if (!preg_match('/[^A-Za-z0-9]/', $newPass)) {
+            $passwordErrors[] = 'New password must contain at least one special character.';
+        }
+        if ($newPass !== $confirm) {
+            $passwordErrors[] = 'New passwords do not match.';
+        }
+
+        if (empty($passwordErrors)) {
+            $stmt = $pdo->prepare("UPDATE Admins SET Password = ? WHERE AdminID = ?");
+            $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), $adminId]);
+            header('Location: change-password.php?success=password');
+            exit;
+        }
     }
 }
 ?>
@@ -43,32 +68,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Change Password</title>
+    <title>Settings</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
-    <div class="dashboard-content-card dashboard-narrow-card">
-        <h1>Change Your Password</h1>
+    <div class="dashboard-content-card dashboard-narrow-card settings-page">
+        <h1>Settings</h1>
+        <p class="text-muted settings-intro">Manage your account photo and password.</p>
 
-        <?php if (isset($_GET['success'])): ?>
+        <?php if (($_GET['success'] ?? '') === 'password'): ?>
             <div class="alert alert-success">Password changed successfully.</div>
+        <?php elseif (($_GET['success'] ?? '') === 'photo'): ?>
+            <div class="alert alert-success">Profile photo updated successfully.</div>
+        <?php elseif (($_GET['success'] ?? '') === 'photo_removed'): ?>
+            <div class="alert alert-success">Profile photo removed.</div>
         <?php endif; ?>
 
-        <?php if (!empty($errors)): ?>
+        <?php
+        $profilePhotoRole = 'admin';
+        $profilePhotoName = $adminName;
+        $profilePhotoInitial = $adminInitial;
+        include __DIR__ . '/../includes/profile-photo-settings.php';
+        ?>
+
+        <?php if (!empty($passwordErrors)): ?>
             <div class="alert alert-danger">
-                <ul style="margin:0; padding-left:18px;">
-                    <?php foreach ($errors as $e): ?>
-                        <li><?= htmlspecialchars($e) ?></li>
+                <ul class="settings-error-list">
+                    <?php foreach ($passwordErrors as $passwordError): ?>
+                        <li><?= htmlspecialchars($passwordError) ?></li>
                     <?php endforeach; ?>
                 </ul>
             </div>
         <?php endif; ?>
 
-        <div class="card">
+        <section class="card settings-section password-settings-section">
+            <div class="settings-section-heading">
+                <span class="settings-section-icon"><?= studentDashboardIcon('settings') ?></span>
+                <div>
+                    <h2>Change password</h2>
+                    <p>Choose a unique password for your clinic account.</p>
+                </div>
+            </div>
             <form method="POST" action="">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                <input type="hidden" name="action" value="change_password">
                 <div class="form-group">
                     <label for="old_password">Current Password *</label>
                     <div class="password-wrapper">
@@ -106,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <a href="../../public/index.php" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
-        </div>
+        </section>
     </div>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
     <script src="../../public/assets/js/main.js"></script>

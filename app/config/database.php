@@ -16,14 +16,14 @@ $dotenv->load();
 // Get MySQL credentials from .env
 $host = $_ENV['DB_HOST'];
 $db   = $_ENV['DB_DATABASE'];
-$user = $_ENV['DB_USERNAME'];
+$dbUser = $_ENV['DB_USERNAME'];
 $pass = $_ENV['DB_PASSWORD'];
 $port = $_ENV['DB_PORT'];
 
 // Create PDO connection
 try {
     $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [
+    $pdo = new PDO($dsn, $dbUser, $pass, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
     ]);
 } catch (PDOException $e) {

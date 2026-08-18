@@ -48,7 +48,7 @@ $apiBase = $basePath . '/app/api';
 $pusher = pusherPublicConfig();
 $adminPageTitle = 'Messages';
 $adminContentClass = 'student-message-content';
-$adminBreadcrumbTrail = ['Dashboard', 'Messages'];
+$adminBreadcrumbTrail = ['Messages'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -57,7 +57,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messages</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page student-messages-body admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -97,6 +97,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
                 <?php else: ?>
                     <ul class="chat-thread-list" id="chat-thread-list">
                         <?php foreach ($threads as $t): ?>
+                        <?php $threadStatus = strtolower((string) ($t['ConversationStatus'] ?? 'open')); ?>
                         <li>
                             <a href="messages.php?student_id=<?= (int) $t['StudentID'] ?>"
                                class="chat-thread-item <?= $selectedId === (int) $t['StudentID'] ? 'active' : '' ?>"
@@ -108,7 +109,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
                                 <?php if ((int) $t['UnreadCount'] > 0): ?>
                                     <span class="chat-unread-badge"><?= (int) $t['UnreadCount'] ?></span>
                                 <?php endif; ?>
-                                <span class="chat-status-mini"><?= htmlspecialchars(ucfirst($t['ConversationStatus'] ?? 'open')) ?></span>
+                                <span class="chat-status-mini is-<?= htmlspecialchars($threadStatus) ?>"><?= htmlspecialchars(ucfirst($threadStatus)) ?></span>
                                 <?php if (!empty($t['LastMessage'])): ?>
                                     <span class="chat-thread-preview">
                                         <?= htmlspecialchars(mb_strimwidth($t['LastMessage'], 0, 60, '…')) ?>
@@ -137,7 +138,8 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
                             <button type="submit" class="btn btn-success">
                                 <?= ($conversation['Status'] ?? 'open') === 'resolved' ? 'Reopen' : 'Mark Resolved' ?>
                             </button>
-                            <span class="chat-status-pill"><?= htmlspecialchars(ucfirst($conversation['Status'] ?? 'open')) ?></span>
+                            <?php $selectedStatus = strtolower((string) ($conversation['Status'] ?? 'open')); ?>
+                            <span class="chat-status-pill is-<?= htmlspecialchars($selectedStatus) ?>"><?= htmlspecialchars(ucfirst($selectedStatus)) ?></span>
                         </form>
                     </div>
 
@@ -153,6 +155,7 @@ $adminBreadcrumbTrail = ['Dashboard', 'Messages'];
                          data-inbox-channel="<?= htmlspecialchars(adminInboxChannel()) ?>"
                          data-csrf="<?= htmlspecialchars(csrfToken()) ?>"
                          data-student-id="<?= $selectedId ?>"
+                         data-conversation-status="<?= htmlspecialchars($conversation['Status'] ?? 'open') ?>"
                          data-role="admin">
 
                         <div id="chat-messages" class="chat-messages student-chat-messages admin-chat-messages <?= empty($messages) ? 'is-empty' : 'has-messages' ?>">

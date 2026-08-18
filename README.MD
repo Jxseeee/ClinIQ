@@ -4,10 +4,9 @@ A PHP CRUD application with role-based authentication. Admins manage students an
 
 ## Requirements
 
-- PHP 8.0+
+- PHP 8.1+
 - MySQL / MariaDB
 - Composer
-- Node.js 20+ / npm
 - XAMPP (or equivalent web server)
 - [Pusher](https://pusher.com/) account (free tier) for real-time chat
 
@@ -19,20 +18,11 @@ A PHP CRUD application with role-based authentication. Admins manage students an
 composer install
 ```
 
-2. Install frontend tooling and build CSS assets:
+2. Create a `.env` file in the project root (use `.env.example` as a template) and configure your database credentials and Pusher keys.
 
-```bash
-npm install
-npm run assets:build
-```
+No frontend build step is required. Browser-ready styles are stored in `public/assets/css/` and loaded directly by the PHP pages.
 
-Use `npm run tailwind:watch` while editing dashboard/message UI classes. Run `npm run css:minify` after editing `public/assets/css/style.css`.
-
-Tailwind source is in `resources/css/tailwind.css` and the compiled stylesheet is written to `public/assets/css/tailwind.css`. App-specific source CSS is in `public/assets/css/style.css` and the browser loads the minified `public/assets/css/style.min.css`. Compiled CSS files are committed so the app can run under XAMPP after cloning.
-
-3. Create a `.env` file in the project root (use `.env.example` as a template) and configure your database credentials and Pusher keys.
-
-4. Import the database schema:
+3. Import the database schema:
 
 ```bash
 mysql -u root -p < database/Clinic.sql
@@ -62,13 +52,43 @@ If you already have the database and need consent/guardian image uploads, run:
 mysql -u root -p < database/migrations/add_consent_image_path.sql
 ```
 
-If you already have the database and need appointments, clinic visits, notifications, and chat conversation status, run:
+If you already have the database and need admin/student profile photos, run:
+
+```bash
+mysql -u root -p < database/migrations/add_profile_images.sql
+```
+
+If you already have the database and need persisted clinic consent choices, run:
+
+```bash
+mysql -u root -p < database/migrations/add_clinic_consent_choices.sql
+```
+
+If you already have the database and need live clinic occupancy counts, run:
+
+```bash
+mysql -u root -p < database/migrations/add_clinic_occupancy.sql
+```
+
+If you already have the database and need medicine inventory reports, run:
+
+```bash
+mysql -u root -p < database/migrations/add_medicine_inventory.sql
+```
+
+If you already have `ClinicVisits` and need a separate medicine-given field, run:
+
+```bash
+mysql -u root -p < database/migrations/add_visit_medicine_given.sql
+```
+
+If you already have the database and need clinic visits, notifications, and chat conversation status, run:
 
 ```bash
 mysql -u root -p < database/migrations/add_clinic_workflow.sql
 ```
 
-5. Configure Pusher for real-time chat:
+4. Configure Pusher for real-time chat:
 
 - Create a free app at [dashboard.pusher.com](https://dashboard.pusher.com/)
 - Copy **App ID**, **Key**, **Secret**, and **Cluster** into your `.env`:
@@ -82,7 +102,7 @@ PUSHER_APP_CLUSTER=ap1
 
 Chat still works without Pusher (messages are saved to MySQL), but the other party must refresh the page to see new replies.
 
-6. Open the app in your browser:
+5. Open the app in your browser:
 
 ```
 http://localhost/ClinIQ/public/login.php
@@ -102,24 +122,46 @@ New student accounts are created by admins only. Admin-created students use the 
 - **Students:** `students/messages.php` — one thread per student with the admin office
 - **Admins:** `app/admin/messages.php` — inbox of all student conversations with unread badges
 - Messages are stored in the `Messages` table and pushed instantly via Pusher private channels
+- Admins can mark conversations resolved; students see the resolved indicator, and a new student message automatically reopens the conversation
 - Active chat pages are limited to 5 users for testing; extra users wait on `public/chat-queue.php`
 - API endpoints: `app/api/chat.php` (send/fetch), `app/api/pusher-auth.php` (channel authorization), and `app/api/chat-presence.php` (queue/heartbeat)
 
 ## Patient Records
 
 - `students/profile.php` merges patient records and the clinic form preview
+- Student clinic details are edited through a responsive four-step form covering personal information, guardians, medical history/allergies, and a read-only consent preview
+- Wizard steps are sequential and cannot be opened from the progress indicators; the final step provides a downloadable consent PDF
+- Date of Birth cannot be later than the current Manila date
+- Saved guardian, emergency, medical, allergy, and stored consent details appear in student/admin record views and consent downloads
 - Students can download the clinic form and consent form as PDFs
 - Students can upload a parent/guardian ID image below the consent form
 - The ID image View button appears only after an upload exists
 - Admins can view uploaded parent/guardian ID images from the student record page
 - Admins can record clinic visits from each student record
+- Admins can record medicine given separately from assessment and treatment; it appears in student/admin visit history and Visit Reports
 - Students can view clinic visit history in their patient records
+- Patient and consent records stack into readable mobile layouts without horizontal table scrolling
+- Clinic follow-up dates are limited to today through 30 days ahead with a bounded custom calendar
 
-## Appointments
+## Account Settings
 
-- **Students:** `students/appointments.php` — request clinic appointments and review request status
-- **Admins:** `app/admin/appointments.php` — approve, decline, complete, cancel, and annotate requests
-- Appointment and visit actions create lightweight in-app notifications shown through dashboard badges
+- Admins and students can upload, replace, or remove their own profile photo from Settings
+- Profile photos support JPG, PNG, and WEBP files up to 3MB
+- Uploaded profile photos appear in the dashboard sidebar and fall back to account initials when absent
+- Profile photo files are stored under `public/uploads/profiles/` and ignored by Git
+- Admin and student dashboards provide a moon/sun light-dark theme toggle beside notifications; the selected preference is remembered in browser storage across pages and sessions
+
+## Clinic Occupancy
+
+- Admin and student dashboards show nurses currently on duty and students currently in the clinic
+- Administrators can update either count directly from their dashboard
+- Student occupancy cards are read-only and reflect the same persisted values
+
+## Reports
+
+- `app/admin/reports.php` combines medicine inventory and clinic visit reports
+- Administrators can add medicines or stock in focused pop-up dialogs, delete medicines with confirmation, search inventory, filter low-stock items, filter visit records, and print reports
+- Medicine summaries show total medicine types and items at or below their configured low-stock threshold
 
 ## Project Structure
 
@@ -132,7 +174,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │   │   ├── edit-student.php
 │   │   ├── delete-student.php
 │   │   ├── view-consent-image.php
-│   │   ├── appointments.php
+│   │   ├── reports.php
 │   │   ├── change-password.php
 │   │   ├── announcements.php
 │   │   ├── add-announcement.php
@@ -152,6 +194,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── admin-dashboard-end.php   # Admin dashboard shell footer
 │       ├── student-dashboard-start.php # Student dashboard shell
 │       ├── student-dashboard-end.php   # Student dashboard shell footer
+│       ├── profile-photo-settings.php  # Shared profile photo Settings UI
 │       ├── helpers.php         # Shared query/validation helpers
 │       ├── student-form-pdf.php # Clinic/consent PDF rendering helpers
 │       ├── chat-messages.php   # Chat bubble partial
@@ -161,7 +204,6 @@ New student accounts are created by admins only. Admin-created students use the 
 │   ├── messages.php        # Chat with admin
 │   ├── profile.php         # Patient records + clinic/consent forms
 │   ├── edit-profile.php    # Edit clinic form
-│   ├── appointments.php    # Clinic appointment requests
 │   ├── download-clinic-form.php
 │   ├── download-consent-form.php
 │   ├── view-consent-image.php
@@ -173,7 +215,12 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── add_must_change_password.sql
 │       ├── add_chat_queue.sql
 │       ├── add_consent_image_path.sql
-│       └── add_clinic_workflow.sql
+│       ├── add_clinic_workflow.sql
+│       ├── add_clinic_consent_choices.sql
+│       ├── add_clinic_occupancy.sql
+│       ├── add_medicine_inventory.sql
+│       ├── add_visit_medicine_given.sql
+│       └── add_profile_images.sql
 ├── public/                 # Web entry point
 │   ├── login.php           # Login page
 │   ├── logout.php          # Logout handler
@@ -181,20 +228,14 @@ New student accounts are created by admins only. Admin-created students use the 
 │   ├── index.php           # Admin dashboard (student list)
 │   └── assets/
 │       ├── css/style.css     # Editable app CSS source
-│       ├── css/style.min.css # Minified app CSS loaded by pages
-│       ├── css/tailwind.css # Generated Tailwind output
+│       ├── css/tailwind.css # Browser-ready utility styles
 │       ├── js/main.js
 │       ├── js/chat.js      # Pusher chat client
 │       ├── js/chat-queue.js # Queue polling client
 │       └── images/
-├── resources/
-│   └── css/tailwind.css    # Tailwind source
 ├── vendor/                 # Composer packages (gitignored)
-├── node_modules/           # npm packages (gitignored)
 ├── .env                    # Environment config (gitignored)
 ├── .env.example            # Template for .env
 ├── composer.json
-├── package.json
-├── package-lock.json
 └── README.MD
 ```

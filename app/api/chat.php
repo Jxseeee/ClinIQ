@@ -65,9 +65,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     markChatMessagesRead($pdo, $studentId, $role);
     $rows = fetchChatMessages($pdo, $studentId);
     $messages = array_map(fn($row) => formatChatMessage($row, $role), $rows);
+    $conversation = fetchChatConversation($pdo, $studentId);
 
     echo json_encode([
         'messages'  => $messages,
+        'conversation_status' => $conversation['Status'] ?? 'open',
         'pusher'    => pusherPublicConfig(),
         'channel'   => chatChannelName($studentId),
         'student_id'=> $studentId,
@@ -112,10 +114,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminId = $role === 'admin' ? $userId : null;
     $row = sendChatMessage($pdo, $studentId, $role, $adminId, $content);
     $message = formatChatMessage($row, $role);
+    $conversation = fetchChatConversation($pdo, $studentId);
 
     broadcastChatMessage($studentId, $message);
 
-    echo json_encode(['message' => $message]);
+    echo json_encode([
+        'message' => $message,
+        'conversation_status' => $conversation['Status'] ?? 'open',
+    ]);
     exit;
 }
 
