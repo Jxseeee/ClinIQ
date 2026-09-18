@@ -6,7 +6,9 @@ DROP TABLE IF EXISTS ChatQueue;
 DROP TABLE IF EXISTS ActiveChatSessions;
 DROP TABLE IF EXISTS Notifications;
 DROP TABLE IF EXISTS ClinicOccupancy;
+DROP TABLE IF EXISTS Nurses;
 DROP TABLE IF EXISTS Medicines;
+DROP TABLE IF EXISTS ClinicCheckIns;
 DROP TABLE IF EXISTS ClinicVisits;
 DROP TABLE IF EXISTS ChatConversations;
 DROP TABLE IF EXISTS Messages;
@@ -25,6 +27,7 @@ CREATE TABLE Students (
     Phone VARCHAR(20),
     Password VARCHAR(255) NOT NULL,
     MustChangePassword TINYINT(1) NOT NULL DEFAULT 0,
+    NotificationsEnabled TINYINT(1) NOT NULL DEFAULT 1,
 
     Course VARCHAR(100),
     YearLevel VARCHAR(20),
@@ -127,21 +130,34 @@ CREATE TABLE ChatConversations (
 
 CREATE TABLE ClinicVisits (
     VisitID INT AUTO_INCREMENT PRIMARY KEY,
-    StudentID INT NOT NULL,
+    StudentID INT NULL,
+    StaffID INT NULL,
     AdminID INT NULL,
     Complaint TEXT NOT NULL,
     Vitals VARCHAR(255),
     Assessment TEXT,
     Treatment TEXT,
     MedicineGiven VARCHAR(255),
+    MedicineID INT NULL,
+    MedicineDosage VARCHAR(120),
+    MedicineQuantity INT UNSIGNED NULL,
     Status ENUM('open', 'completed', 'follow-up') NOT NULL DEFAULT 'completed',
     Disposition VARCHAR(100),
     FollowUpDate DATE NULL,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
+    FOREIGN KEY (StaffID) REFERENCES Admins(AdminID) ON DELETE CASCADE,
     FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
-    INDEX idx_clinic_visits_student_created (StudentID, CreatedAt)
+    INDEX idx_clinic_visits_student_created (StudentID, CreatedAt),
+    INDEX idx_clinic_visits_staff_created (StaffID, CreatedAt),
+    CONSTRAINT chk_clinic_visit_person CHECK (
+        (StudentID IS NOT NULL AND StaffID IS NULL)
+        OR (StudentID IS NULL AND StaffID IS NOT NULL)
+    ),
+    CONSTRAINT chk_clinic_visit_medicine_quantity CHECK (
+        MedicineQuantity IS NULL OR MedicineQuantity > 0
+    )
 );
 
 CREATE TABLE Medicines (
@@ -159,12 +175,25 @@ CREATE TABLE Medicines (
 );
 
 INSERT INTO Medicines (Name, Stock, Dosage, Description, LowStockThreshold, CreatedByAdminID) VALUES
-('Paracetamol', 80, '500 mg tablet', 'Used for mild to moderate pain and fever.', 20, 1),
-('Ibuprofen', 18, '200 mg tablet', 'Used for pain and inflammation.', 20, 1),
-('Cetirizine', 12, '10 mg tablet', 'Allergy relief medication.', 20, 1),
-('Bandage', 77, 'Sterile bandage', 'Used to cover and protect minor wounds.', 20, 1),
-('Ferrous Sulfate', 67, '30 mg tablet', 'Used to support iron deficiency care.', 20, 1),
-('Oral Rehydration Salts', 15, 'One sachet', 'Used to help prevent dehydration.', 20, 1);
+('Paracetamol', 80, '500 mg tablet', 'Used for mild to moderate pain and fever.', 20, NULL),
+('Ibuprofen', 18, '200 mg tablet', 'Used for pain and inflammation.', 20, NULL),
+('Cetirizine', 12, '10 mg tablet', 'Allergy relief medication.', 20, NULL),
+('Bandage', 77, 'Sterile bandage', 'Used to cover and protect minor wounds.', 20, NULL),
+('Ferrous Sulfate', 67, '30 mg tablet', 'Used to support iron deficiency care.', 20, NULL),
+('Oral Rehydration Salts', 15, 'One sachet', 'Used to help prevent dehydration.', 20, NULL);
+
+CREATE TABLE Nurses (
+    NurseID INT AUTO_INCREMENT PRIMARY KEY,
+    FullName VARCHAR(120) NOT NULL,
+    Position VARCHAR(100) NOT NULL DEFAULT 'Clinic Nurse',
+    LicenseNumber VARCHAR(80),
+    IsOnDuty TINYINT(1) NOT NULL DEFAULT 0,
+    CreatedByAdminID INT NULL,
+    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (CreatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
+    INDEX idx_nurses_duty_name (IsOnDuty, FullName)
+);
 
 CREATE TABLE ClinicOccupancy (
     OccupancyID TINYINT PRIMARY KEY DEFAULT 1,
@@ -178,6 +207,28 @@ CREATE TABLE ClinicOccupancy (
 
 INSERT INTO ClinicOccupancy (OccupancyID, NursesOnDuty, StudentsInClinic)
 VALUES (1, 0, 0);
+
+CREATE TABLE ClinicCheckIns (
+    CheckInID INT AUTO_INCREMENT PRIMARY KEY,
+    PersonType ENUM('student', 'staff') NOT NULL,
+    StudentID INT NULL,
+    StaffID INT NULL,
+    VisitID INT NOT NULL UNIQUE,
+    CheckedInByAdminID INT NULL,
+    CheckedInAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CheckedOutAt DATETIME NULL,
+    FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
+    FOREIGN KEY (StaffID) REFERENCES Admins(AdminID) ON DELETE CASCADE,
+    FOREIGN KEY (VisitID) REFERENCES ClinicVisits(VisitID) ON DELETE CASCADE,
+    FOREIGN KEY (CheckedInByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
+    INDEX idx_checkins_active (CheckedOutAt, CheckedInAt),
+    INDEX idx_checkins_student_active (StudentID, CheckedOutAt),
+    INDEX idx_checkins_staff_active (StaffID, CheckedOutAt),
+    CONSTRAINT chk_checkin_person CHECK (
+        (PersonType = 'student' AND StudentID IS NOT NULL AND StaffID IS NULL)
+        OR (PersonType = 'staff' AND StudentID IS NULL AND StaffID IS NOT NULL)
+    )
+);
 
 CREATE TABLE Notifications (
     NotificationID INT AUTO_INCREMENT PRIMARY KEY,

@@ -58,6 +58,12 @@ If you already have the database and need admin/student profile photos, run:
 mysql -u root -p < database/migrations/add_profile_images.sql
 ```
 
+If you already have the database and need student notification preferences, run:
+
+```bash
+mysql -u root -p < database/migrations/add_student_notification_preferences.sql
+```
+
 If you already have the database and need persisted clinic consent choices, run:
 
 ```bash
@@ -68,6 +74,24 @@ If you already have the database and need live clinic occupancy counts, run:
 
 ```bash
 mysql -u root -p < database/migrations/add_clinic_occupancy.sql
+```
+
+If you already have `ClinicVisits` and need centralized student/staff check-in, run:
+
+```bash
+mysql -u root -p < database/migrations/add_clinic_checkins.sql
+```
+
+To track dispensed quantities and deduct medicine inventory during Check In, then run:
+
+```bash
+mysql -u root -p < database/migrations/add_visit_medicine_quantity.sql
+```
+
+If you already have the database and need nurse directory and duty management, run:
+
+```bash
+mysql -u root -p < database/migrations/add_nurses.sql
 ```
 
 If you already have the database and need medicine inventory reports, run:
@@ -137,11 +161,12 @@ New student accounts are created by admins only. Admin-created students use the 
 - Students can upload a parent/guardian ID image below the consent form
 - The ID image View button appears only after an upload exists
 - Admins can view uploaded parent/guardian ID images from the student record page
-- Admins can record clinic visits from each student record
-- Admins can record medicine given separately from assessment and treatment; it appears in student/admin visit history and Visit Reports
+- Admins record clinic visits from the centralized `app/admin/check-in.php` workflow after searching for an existing student or staff account
+- Staff check-in currently uses existing administrator accounts as staff records
+- Existing medicines are selected from inventory; dosage and quantity are recorded separately, quantity appears in visit history and Reports, and available stock is deducted atomically
 - Students can view clinic visit history in their patient records
 - Patient and consent records stack into readable mobile layouts without horizontal table scrolling
-- Clinic follow-up dates are limited to today through 30 days ahead with a bounded custom calendar
+- Clinic follow-up dates are limited to today through 30 days ahead
 
 ## Account Settings
 
@@ -150,18 +175,27 @@ New student accounts are created by admins only. Admin-created students use the 
 - Uploaded profile photos appear in the dashboard sidebar and fall back to account initials when absent
 - Profile photo files are stored under `public/uploads/profiles/` and ignored by Git
 - Admin and student dashboards provide a moon/sun light-dark theme toggle beside notifications; the selected preference is remembered in browser storage across pages and sessions
+- Student Settings provides separate Profile, Account, and Notification sections
+- Profile displays student information as read-only while retaining avatar upload/removal
+- Account allows students to update their `@fcat.com.ph` email, mobile number, address, and password
+- Disabling student notifications suppresses future notification records and removes bell counts/lists until re-enabled
 
-## Clinic Occupancy
+## Check In and Clinic Occupancy
 
-- Admin and student dashboards show nurses currently on duty and students currently in the clinic
-- Administrators can update either count directly from their dashboard
-- Student occupancy cards are read-only and reflect the same persisted values
+- Admin and student dashboards show nurses currently on duty and people currently in the clinic
+- `app/admin/check-in.php` searches existing students and staff, records their visit, and lists all active clinic check-ins
+- Checking out closes an open visit and immediately removes that person from the active clinic count
+- `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls
+- The nurses-on-duty dashboard count is derived from active nurse toggles and cannot be edited manually
+- Clinic occupancy is derived from active check-ins and cannot be edited manually
+- Admin and student occupancy cards are read-only and reflect the same live value
 
 ## Reports
 
 - `app/admin/reports.php` combines medicine inventory and clinic visit reports
 - Administrators can add medicines or stock in focused pop-up dialogs, delete medicines with confirmation, search inventory, filter low-stock items, filter visit records, and print reports
 - Medicine summaries show total medicine types and items at or below their configured low-stock threshold
+- The medicine stock overview uses a responsive GSAP carousel with next/previous controls that advances one inventory item at a time
 
 ## Project Structure
 
@@ -175,6 +209,8 @@ New student accounts are created by admins only. Admin-created students use the 
 │   │   ├── delete-student.php
 │   │   ├── view-consent-image.php
 │   │   ├── reports.php
+│   │   ├── nurses.php
+│   │   ├── check-in.php
 │   │   ├── change-password.php
 │   │   ├── announcements.php
 │   │   ├── add-announcement.php
@@ -218,6 +254,10 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── add_clinic_workflow.sql
 │       ├── add_clinic_consent_choices.sql
 │       ├── add_clinic_occupancy.sql
+│       ├── add_clinic_checkins.sql
+│       ├── add_visit_medicine_quantity.sql
+│       ├── add_nurses.sql
+│       ├── add_student_notification_preferences.sql
 │       ├── add_medicine_inventory.sql
 │       ├── add_visit_medicine_given.sql
 │       └── add_profile_images.sql

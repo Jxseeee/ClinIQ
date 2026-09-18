@@ -7,6 +7,7 @@ $studentName = $studentUser['name'] ?? 'Student';
 $studentInitial = strtoupper(substr($studentName, 0, 1));
 $studentProfileImagePath = fetchProfileImagePath($pdo, 'student', (int) ($studentUser['id'] ?? 0));
 $studentProfileImageUrl = profileImageUrl($studentProfileImagePath, $basePath);
+$studentNotificationsAreEnabled = studentNotificationsEnabled($pdo, (int) ($studentUser['id'] ?? 0));
 $studentNotificationCount = countUnreadNotifications($pdo, 'student', (int) ($studentUser['id'] ?? 0));
 $studentNotifications = fetchNotifications($pdo, 'student', (int) ($studentUser['id'] ?? 0));
 $currentPage = basename(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''));
@@ -18,6 +19,12 @@ $navItems = [
     'profile.php'      => ['Patient Records', 'records'],
     'messages.php'     => ['Messages', 'message'],
 ];
+$studentPageIcon = match ($currentPage) {
+    'profile.php', 'edit-profile.php' => 'records',
+    'messages.php' => 'message',
+    'change-password.php' => 'settings',
+    default => 'dashboard',
+};
 ?>
 <script src="<?= $basePath ?>/public/assets/js/theme.js"></script>
 <aside class="student-sidebar">
@@ -79,7 +86,7 @@ $navItems = [
 <main class="student-dashboard-main">
     <header class="student-dashboard-topbar">
         <div class="student-breadcrumb">
-            <span class="student-topbar-icon"><?= studentDashboardIcon('dashboard') ?></span>
+            <span class="student-topbar-icon"><?= studentDashboardIcon($studentPageIcon) ?></span>
             <?php if (!empty($studentBreadcrumbTrail) && is_array($studentBreadcrumbTrail)): ?>
                 <?php foreach ($studentBreadcrumbTrail as $item): ?>
                     <span><?= htmlspecialchars($item) ?></span>
@@ -104,7 +111,9 @@ $navItems = [
                 </button>
                 <div class="notification-dropdown" role="menu">
                     <strong>Notifications</strong>
-                    <?php if (!empty($studentNotifications)): ?>
+                    <?php if (!$studentNotificationsAreEnabled): ?>
+                        <p>Notifications are disabled. <a href="<?= $basePath ?>/students/change-password.php?tab=notifications">Open Settings</a></p>
+                    <?php elseif (!empty($studentNotifications)): ?>
                         <?php foreach ($studentNotifications as $notification): ?>
                             <a href="<?= htmlspecialchars($notification['Link'] ?: '#') ?>" class="<?= (int) $notification['IsRead'] === 0 ? 'is-unread' : '' ?>">
                                 <span><?= htmlspecialchars($notification['Title']) ?></span>

@@ -2,16 +2,22 @@ document.addEventListener('DOMContentLoaded', function () {
     initAlertAutoDismiss();
     initFormValidation();
     initDeleteModal();
+    initNurseManagement();
     initLiveSearch();
+    initCheckInSearch();
+    initCheckInMedicineFields();
     initPhoneFormatting();
     initPasswordToggle();
     initPasswordChecklist();
     initInputRestrictions();
     initConsentImageUpload();
     initProfilePhotoUpload();
+    initStudentNotificationPreference();
     initBirthDatePicker();
+    initPastDateInputs();
     initFollowUpDatePicker();
     initClinicFormWizard();
+    initMedicineCarousel();
     initReportDialogs();
     initReportPrint();
     initDashboardMobileNav();
@@ -112,51 +118,216 @@ function initNotificationMenu() {
     });
 }
 
-/* ── 2. Client-side form validation ──────────────────── */
+/* ── Check In person search ────────────────── */
 
-function initFormValidation() {
-    var form = document.querySelector('form[method="POST"]:not(.delete-form)');
-    if (!form) return;
+function initCheckInSearch() {
+    var form = document.querySelector('[data-checkin-search-form]');
+    var results = document.querySelector('[data-checkin-search-results]');
+    if (!form || !results) return;
 
-    form.addEventListener('submit', function (e) {
-        var errors = [];
-        var firstName = form.querySelector('[name="first_name"]');
-        var lastName  = form.querySelector('[name="last_name"]');
-        var email     = form.querySelector('[name="email"]');
+    var input = form.querySelector('input[type="search"]');
+    var people = Array.from(results.querySelectorAll('[data-checkin-person]'));
+    var noMatches = results.querySelector('[data-checkin-search-empty]');
+    var isOpen = false;
 
-        if (firstName && firstName.value.trim() === '') {
-            errors.push('First name is required.');
-        }
-        if (lastName && lastName.value.trim() === '') {
-            errors.push('Last name is required.');
-        }
-        if (email && email.value.trim() !== '') {
-            var emailVal = email.value.trim().toLowerCase();
-            var emailRe  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!input) return;
 
-            if (!emailRe.test(emailVal)) {
-                errors.push('Invalid email format.');
-            } else if (!emailVal.endsWith('@fcat.com.ph')) {
-                errors.push('Email must be a @fcat.com.ph address.');
+    function normalizeText(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLocaleLowerCase()
+            .trim();
+    }
+
+    function visiblePeople() {
+        return people.filter(function (person) { return !person.hidden; });
+    }
+
+    function filterPeople() {
+        var query = normalizeText(input.value);
+        var matchCount = 0;
+
+        people.forEach(function (person) {
+            var matches = query === '' || normalizeText(person.dataset.searchText).includes(query);
+            person.hidden = !matches;
+            if (matches) matchCount += 1;
+        });
+
+        if (noMatches) noMatches.hidden = matchCount !== 0 || people.length === 0;
+    }
+
+    function setOpen(open) {
+        isOpen = open;
+        results.hidden = !open;
+        input.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    input.addEventListener('focus', function () {
+        filterPeople();
+        setOpen(true);
+    });
+
+    input.addEventListener('input', function () {
+        filterPeople();
+        setOpen(true);
+    });
+
+    input.addEventListener('keydown', function (event) {
+        if (event.key === 'ArrowDown') {
+            var firstPerson = visiblePeople()[0];
+            if (firstPerson) {
+                event.preventDefault();
+                firstPerson.focus();
             }
         }
 
-        if (errors.length === 0) return;
-
-        e.preventDefault();
-
-        var existing = form.parentElement.querySelector('.js-validation-alert');
-        if (existing) existing.remove();
-
-        var alertDiv = document.createElement('div');
-        alertDiv.className = 'alert alert-danger js-validation-alert';
-        alertDiv.innerHTML =
-            '<ul style="margin:0;padding-left:18px;">' +
-            errors.map(function (msg) { return '<li>' + msg + '</li>'; }).join('') +
-            '</ul>';
-        form.parentElement.insertBefore(alertDiv, form);
-        alertDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            setOpen(false);
+        }
     });
+
+    people.forEach(function (person) {
+        person.addEventListener('keydown', function (event) {
+            var matches = visiblePeople();
+            var index = matches.indexOf(person);
+
+            if (event.key === 'ArrowDown' && matches[index + 1]) {
+                event.preventDefault();
+                matches[index + 1].focus();
+            }
+
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (matches[index - 1]) {
+                    matches[index - 1].focus();
+                } else {
+                    input.focus();
+                }
+            }
+
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setOpen(false);
+                input.focus();
+            }
+        });
+    });
+
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        filterPeople();
+        setOpen(true);
+    });
+
+    document.addEventListener('click', function (event) {
+        if (!form.contains(event.target) && !results.contains(event.target)) {
+            setOpen(false);
+        }
+    });
+
+    filterPeople();
+    if (input.value.trim() !== '') setOpen(true);
+}
+
+function initCheckInMedicineFields() {
+    var medicine = document.querySelector('[data-checkin-medicine]');
+    var dosage = document.querySelector('[data-checkin-medicine-dosage]');
+    var quantity = document.querySelector('[data-checkin-medicine-quantity]');
+    if (!medicine || !dosage || !quantity) return;
+
+    function syncMedicineFields(clearValues) {
+        var selectedOption = medicine.options[medicine.selectedIndex];
+        var hasMedicine = medicine.value !== '';
+        var availableStock = Number(selectedOption ? selectedOption.dataset.stock : 0);
+
+        if (clearValues) {
+            dosage.value = '';
+            quantity.value = '';
+        }
+
+        dosage.disabled = !hasMedicine;
+        dosage.required = hasMedicine;
+        quantity.disabled = !hasMedicine;
+        quantity.required = hasMedicine;
+
+        if (hasMedicine) {
+            quantity.max = String(Math.max(0, availableStock));
+            quantity.placeholder = availableStock + ' available';
+        } else {
+            quantity.max = '999999';
+            quantity.placeholder = 'Select medicine first';
+        }
+    }
+
+    medicine.addEventListener('change', function () {
+        syncMedicineFields(true);
+    });
+
+    syncMedicineFields(false);
+}
+
+/* ── 2. Client-side form validation ──────────────────── */
+
+function initFormValidation() {
+    var forms = document.querySelectorAll('form[method="POST"]:not(.delete-form)');
+    if (forms.length === 0) return;
+
+    forms.forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            var errors = [];
+            var firstName = form.querySelector('[name="first_name"]');
+            var lastName  = form.querySelector('[name="last_name"]');
+            var email     = form.querySelector('[name="email"]');
+
+            if (firstName && firstName.value.trim() === '') {
+                errors.push('First name is required.');
+            }
+            if (lastName && lastName.value.trim() === '') {
+                errors.push('Last name is required.');
+            }
+            if (email && email.value.trim() !== '') {
+                var emailVal = email.value.trim().toLowerCase();
+                var emailRe  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                if (!emailRe.test(emailVal)) {
+                    errors.push('Invalid email format.');
+                } else if (!emailVal.endsWith('@fcat.com.ph')) {
+                    errors.push('Email must be a @fcat.com.ph address.');
+                }
+            }
+
+            if (errors.length === 0) return;
+
+            e.preventDefault();
+
+            var existing = form.parentElement.querySelector('.js-validation-alert');
+            if (existing) existing.remove();
+
+            var alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger js-validation-alert';
+            alertDiv.innerHTML =
+                '<ul style="margin:0;padding-left:18px;">' +
+                errors.map(function (msg) { return '<li>' + msg + '</li>'; }).join('') +
+                '</ul>';
+            form.parentElement.insertBefore(alertDiv, form);
+            alertDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    });
+}
+
+function initStudentNotificationPreference() {
+    var input = document.querySelector('.student-notification-preference input[type="checkbox"]');
+    var state = document.querySelector('.student-notification-state strong');
+    if (!input || !state) return;
+
+    function updateState() {
+        state.textContent = input.checked ? 'enabled' : 'disabled';
+    }
+
+    input.addEventListener('change', updateState);
+    updateState();
 }
 
 /* ── 3. Delete confirmation modal ────────────────────── */
@@ -223,6 +394,164 @@ function initDeleteModal() {
         if (e.key === 'Escape' && overlay.classList.contains('active')) {
             closeModal();
         }
+    });
+}
+
+function initNurseManagement() {
+    var page = document.querySelector('[data-nurses-page]');
+    if (!page) return;
+
+    var dialogs = Array.from(page.querySelectorAll('.nurse-dialog'));
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var ajaxAlert = page.querySelector('[data-nurses-ajax-alert]');
+
+    function openDialog(dialog, trigger) {
+        if (!dialog || dialog.open) return;
+        dialog.nurseTrigger = trigger || null;
+        dialog.showModal();
+        document.body.classList.add('nurse-dialog-open');
+
+        var initialFocus = dialog.querySelector('[autofocus]');
+        if (initialFocus) {
+            window.requestAnimationFrame(function () {
+                if (dialog.open) initialFocus.focus({ preventScroll: true });
+            });
+        }
+
+        var shell = dialog.querySelector('.nurse-dialog-shell');
+        if (shell && window.gsap && !reduceMotion) {
+            window.gsap.fromTo(shell,
+                { opacity: 0, y: 20, scale: 0.985 },
+                { opacity: 1, y: 0, scale: 1, duration: 0.3, ease: 'power3.out', clearProps: 'transform,opacity' }
+            );
+        }
+    }
+
+    function closeDialog(dialog) {
+        if (!dialog || !dialog.open) return;
+        var shell = dialog.querySelector('.nurse-dialog-shell');
+        if (shell && window.gsap && !reduceMotion) {
+            window.gsap.killTweensOf(shell);
+            window.gsap.to(shell, {
+                opacity: 0,
+                y: 10,
+                scale: 0.99,
+                duration: 0.15,
+                ease: 'power2.in',
+                onComplete: function () {
+                    dialog.close();
+                    window.gsap.set(shell, { clearProps: 'transform,opacity' });
+                }
+            });
+            return;
+        }
+        dialog.close();
+    }
+
+    page.querySelectorAll('[data-nurse-dialog-open]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            openDialog(document.getElementById(this.dataset.nurseDialogOpen), this);
+        });
+    });
+
+    dialogs.forEach(function (dialog) {
+        dialog.querySelectorAll('[data-nurse-dialog-close]').forEach(function (button) {
+            button.addEventListener('click', function () { closeDialog(dialog); });
+        });
+        dialog.addEventListener('click', function (event) {
+            if (event.target === dialog) closeDialog(dialog);
+        });
+        dialog.addEventListener('close', function () {
+            document.body.classList.remove('nurse-dialog-open');
+            if (dialog.nurseTrigger && dialog.nurseTrigger.isConnected) dialog.nurseTrigger.focus();
+            dialog.nurseTrigger = null;
+        });
+        if (dialog.hasAttribute('data-nurse-dialog-auto-open')) openDialog(dialog, null);
+    });
+
+    var editDialog = document.getElementById('edit-nurse-dialog');
+    page.querySelectorAll('[data-nurse-edit]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            if (!editDialog) return;
+            editDialog.querySelector('[data-edit-nurse-id]').value = this.dataset.nurseId || '';
+            editDialog.querySelector('[data-edit-nurse-name]').value = this.dataset.nurseName || '';
+            editDialog.querySelector('[data-edit-nurse-position]').value = this.dataset.nursePosition || '';
+            editDialog.querySelector('[data-edit-nurse-license]').value = this.dataset.nurseLicense || '';
+            openDialog(editDialog, this);
+        });
+    });
+
+    function updateDutyState(button, isOnDuty) {
+        var row = button.closest('[data-nurse-row]');
+        var status = row ? row.querySelector('[data-nurse-duty-status]') : null;
+        var value = button.closest('form').querySelector('[data-nurse-duty-value]');
+
+        button.setAttribute('aria-checked', isOnDuty ? 'true' : 'false');
+        button.setAttribute('title', isOnDuty ? 'Set off duty' : 'Set on duty');
+        if (value) value.value = isOnDuty ? '0' : '1';
+        if (status) {
+            status.textContent = isOnDuty ? 'On duty' : 'Off duty';
+            status.classList.toggle('is-on-duty', isOnDuty);
+            status.classList.toggle('is-off-duty', !isOnDuty);
+        }
+    }
+
+    function updateCount(selector, value) {
+        page.querySelectorAll(selector).forEach(function (element) {
+            element.textContent = String(value);
+            if (window.gsap && !reduceMotion) {
+                window.gsap.fromTo(element, { scale: 1.2 }, { scale: 1, duration: 0.28, ease: 'back.out(2)' });
+            }
+        });
+    }
+
+    page.querySelectorAll('[data-nurse-duty-form]').forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var button = form.querySelector('[data-nurse-duty-toggle]');
+            if (!button || button.disabled) return;
+
+            var currentState = button.getAttribute('aria-checked') === 'true';
+            var nextState = !currentState;
+            var body = new FormData(form);
+            body.set('is_on_duty', nextState ? '1' : '0');
+
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
+            updateDutyState(button, nextState);
+            if (ajaxAlert) ajaxAlert.hidden = true;
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: body,
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            }).then(function (response) {
+                return response.json().then(function (payload) {
+                    if (!response.ok || !payload.success) {
+                        throw new Error(payload.message || 'The duty status could not be updated.');
+                    }
+                    return payload;
+                });
+            }).then(function (payload) {
+                updateDutyState(button, Boolean(payload.isOnDuty));
+                updateCount('[data-nurses-on-duty]', payload.onDutyCount);
+                updateCount('[data-nurses-off-duty]', payload.offDutyCount);
+            }).catch(function (error) {
+                updateDutyState(button, currentState);
+                if (ajaxAlert) {
+                    ajaxAlert.textContent = error.message;
+                    ajaxAlert.hidden = false;
+                    ajaxAlert.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+                }
+            }).finally(function () {
+                button.disabled = false;
+                button.removeAttribute('aria-busy');
+            });
+        });
     });
 }
 
@@ -668,6 +997,36 @@ function initBirthDatePicker() {
     });
 }
 
+function initPastDateInputs() {
+    document.querySelectorAll('[data-past-date-picker]').forEach(function (input) {
+        function openCalendar() {
+            if (typeof input.showPicker !== 'function') return;
+
+            try {
+                input.showPicker();
+            } catch (error) {
+                // The browser still exposes its normal date control as a fallback.
+            }
+        }
+
+        input.addEventListener('click', openCalendar);
+        input.addEventListener('keydown', function (event) {
+            if (event.key === 'Tab' || event.key === 'Escape') return;
+
+            event.preventDefault();
+            if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+                openCalendar();
+            }
+        });
+        input.addEventListener('paste', function (event) {
+            event.preventDefault();
+        });
+        input.addEventListener('drop', function (event) {
+            event.preventDefault();
+        });
+    });
+}
+
 function initFollowUpDatePicker() {
     document.querySelectorAll('[data-follow-up-date-picker]').forEach(function (picker) {
         var input = picker.querySelector('input[name="follow_up_date"]');
@@ -974,6 +1333,115 @@ function initClinicFormWizard() {
     });
 
     showStep(currentStep, false);
+}
+
+function initMedicineCarousel() {
+    document.querySelectorAll('[data-medicine-carousel]').forEach(function (carousel, carouselIndex) {
+        var viewport = carousel.querySelector('.medicine-showcase-viewport');
+        var track = carousel.querySelector('[data-medicine-carousel-track]');
+        var cards = Array.from(carousel.querySelectorAll('[data-medicine-carousel-item]'));
+        var previousButton = carousel.querySelector('[data-medicine-carousel-previous]');
+        var nextButton = carousel.querySelector('[data-medicine-carousel-next]');
+        var status = carousel.querySelector('[data-medicine-carousel-status]');
+        var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var currentIndex = 0;
+        var resizeTimer = null;
+
+        if (!viewport || !track || cards.length === 0 || !previousButton || !nextButton) return;
+
+        track.id = track.id || 'medicine-carousel-track-' + (carouselIndex + 1);
+        previousButton.setAttribute('aria-controls', track.id);
+        nextButton.setAttribute('aria-controls', track.id);
+
+        function visibleCount() {
+            var value = parseInt(getComputedStyle(carousel).getPropertyValue('--medicine-visible'), 10);
+            return Number.isFinite(value) && value > 0 ? value : 1;
+        }
+
+        function maximumIndex() {
+            return Math.max(0, cards.length - visibleCount());
+        }
+
+        function updateControls() {
+            var visible = visibleCount();
+            var maximum = maximumIndex();
+            var isStatic = maximum === 0;
+            var isAtStart = currentIndex === 0;
+            var isAtEnd = currentIndex >= maximum;
+
+            carousel.classList.toggle('is-static', isStatic);
+
+            previousButton.hidden = isStatic;
+            previousButton.disabled = isAtStart;
+            previousButton.classList.toggle('is-disabled', isAtStart);
+            previousButton.setAttribute('aria-hidden', isAtStart ? 'true' : 'false');
+
+            nextButton.hidden = isStatic;
+            nextButton.disabled = isAtEnd;
+            nextButton.classList.toggle('is-disabled', isAtEnd);
+            nextButton.setAttribute('aria-hidden', isAtEnd ? 'true' : 'false');
+
+            if (status) {
+                status.textContent = 'Showing medicines ' + (currentIndex + 1) + ' to ' +
+                    Math.min(cards.length, currentIndex + visible) + ' of ' + cards.length + '.';
+            }
+        }
+
+        function targetOffset() {
+            var cardWidth = cards[0].getBoundingClientRect().width;
+            var trackStyle = getComputedStyle(track);
+            var gap = parseFloat(trackStyle.columnGap || trackStyle.gap) || 0;
+            return currentIndex * (cardWidth + gap);
+        }
+
+        function render(animate) {
+            currentIndex = Math.min(currentIndex, maximumIndex());
+            updateControls();
+
+            // Force grid sizing to settle after an arrow enters or leaves the flow.
+            viewport.getBoundingClientRect();
+            var x = -targetOffset();
+
+            if (window.gsap) {
+                window.gsap.killTweensOf(track);
+                if (animate && !reduceMotion) {
+                    window.gsap.to(track, {
+                        x: x,
+                        duration: 0.55,
+                        ease: 'power3.inOut',
+                        overwrite: true
+                    });
+                } else {
+                    window.gsap.set(track, { x: x });
+                }
+                return;
+            }
+
+            track.style.transition = animate && !reduceMotion
+                ? 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'
+                : 'none';
+            track.style.transform = 'translate3d(' + x + 'px, 0, 0)';
+        }
+
+        previousButton.addEventListener('click', function () {
+            if (currentIndex === 0) return;
+            currentIndex--;
+            render(true);
+        });
+
+        nextButton.addEventListener('click', function () {
+            if (currentIndex >= maximumIndex()) return;
+            currentIndex++;
+            render(true);
+        });
+
+        window.addEventListener('resize', function () {
+            window.clearTimeout(resizeTimer);
+            resizeTimer = window.setTimeout(function () { render(false); }, 120);
+        });
+
+        render(false);
+    });
 }
 
 function initReportDialogs() {

@@ -69,16 +69,14 @@ $studentPageTitle = 'Dashboard';
                     <div>
                         <h2>Nurses on duty</h2>
                         <strong><?= (int) $clinicOccupancy['NursesOnDuty'] ?></strong>
-                        <small>Currently attending</small>
                     </div>
                     <span class="stat-icon admin-stat-blue"><?= studentDashboardIcon('nurse') ?></span>
                 </article>
 
                 <article class="student-stat-card">
                     <div>
-                        <h2>Students in clinic</h2>
+                        <h2>People in clinic</h2>
                         <strong><?= (int) $clinicOccupancy['StudentsInClinic'] ?></strong>
-                        <small>Currently receiving care</small>
                     </div>
                     <span class="stat-icon pink"><?= studentDashboardIcon('people') ?></span>
                 </article>

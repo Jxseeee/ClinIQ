@@ -28,7 +28,7 @@ function currentUser(): ?array
 function requireAdmin(): void
 {
     if (!isLoggedIn() || $_SESSION['role'] !== 'admin') {
-        header('Location: ' . getBasePath() . '/public/login.php');
+        header('Location: ' . getBasePath() . '/');
         exit;
     }
 }
@@ -36,7 +36,7 @@ function requireAdmin(): void
 function requireStudent(): void
 {
     if (!isLoggedIn() || $_SESSION['role'] !== 'student') {
-        header('Location: ' . getBasePath() . '/public/login.php');
+        header('Location: ' . getBasePath() . '/');
         exit;
     }
 

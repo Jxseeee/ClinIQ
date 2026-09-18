@@ -40,11 +40,11 @@ $studentBreadcrumbTrail = ['Messages'];
 
             <div class="student-chat-contact">
                 <span class="student-chat-contact-icon"><?= studentDashboardIcon('headset') ?></span>
-                <div>
+                <div class="student-chat-contact-copy">
                     <strong>Clinic Admin</strong>
                     <small>We typically reply within 24 hours</small>
-                    <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                 </div>
+                <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
             </div>
         </div>
 

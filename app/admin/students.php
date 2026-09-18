@@ -61,7 +61,8 @@ $adminPageTitle = 'Students';
                 <div class="search-box admin-search-box">
                     <input type="text" id="student-search" placeholder="Search students...">
                 </div>
-                <table class="admin-dashboard-table">
+                <div class="students-table-wrap">
+                <table class="admin-dashboard-table students-directory-table">
                     <thead>
                         <tr>
                             <th>#</th>
@@ -80,19 +81,20 @@ $adminPageTitle = 'Students';
                             <td data-label="Last Name"><?= htmlspecialchars($s['LastName']) ?></td>
                             <td data-label="Email"><?= htmlspecialchars($s['Email'] ?? '—') ?></td>
                             <td data-label="Phone"><?= htmlspecialchars($s['Phone'] ?? '—') ?></td>
-                            <td data-label="Actions" class="actions">
-                                <a href="view-student.php?id=<?= $s['StudentID'] ?>" class="btn btn-info">View</a>
-                                <a href="edit-student.php?id=<?= $s['StudentID'] ?>" class="btn btn-warning">Edit</a>
-                                <form method="POST" action="delete-student.php" class="delete-form">
+                            <td data-label="Actions" class="actions student-row-actions">
+                                <a href="view-student.php?id=<?= $s['StudentID'] ?>" class="btn student-action-button student-action-view">View</a>
+                                <a href="edit-student.php?id=<?= $s['StudentID'] ?>" class="btn student-action-button student-action-edit">Edit</a>
+                                <form method="POST" action="delete-student.php" class="delete-form student-delete-form">
                                     <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $s['StudentID'] ?>">
-                                    <button type="submit" class="btn btn-danger">Delete</button>
+                                    <button type="submit" class="btn student-action-button student-action-delete">Delete</button>
                                 </form>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div>
             <?php else: ?>
                 <div class="dashboard-empty">No students yet. Click <strong>+ Add Student</strong> to get started.</div>
             <?php endif; ?>

@@ -58,12 +58,14 @@ $adminPageTitle = 'Announcements';
                                     <?= date('M d, Y', strtotime($a['CreatedAt'])) ?>
                                     <small><?= date('g:i A', strtotime($a['CreatedAt'])) ?></small>
                                 </time>
-                                <a href="edit-announcement.php?id=<?= $a['AnnouncementID'] ?>" class="btn btn-warning">Edit</a>
-                                <form method="POST" action="delete-announcement.php" class="delete-form">
-                                    <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
-                                    <input type="hidden" name="id" value="<?= $a['AnnouncementID'] ?>">
-                                    <button type="submit" class="btn btn-danger">Delete</button>
-                                </form>
+                                <div class="announcement-row-actions">
+                                    <a href="edit-announcement.php?id=<?= $a['AnnouncementID'] ?>" class="btn announcement-action-button announcement-action-edit">Edit</a>
+                                    <form method="POST" action="delete-announcement.php" class="delete-form announcement-delete-form">
+                                        <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+                                        <input type="hidden" name="id" value="<?= $a['AnnouncementID'] ?>">
+                                        <button type="submit" class="btn announcement-action-button announcement-action-delete">Delete</button>
+                                    </form>
+                                </div>
                             </div>
                         </article>
                     <?php endforeach; ?>

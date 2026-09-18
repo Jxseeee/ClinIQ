@@ -57,7 +57,6 @@ $visitStatus = in_array(($_GET['visit_status'] ?? ''), ['open', 'completed', 'fo
 
 $medicineSummary = medicineInventorySummary($pdo);
 $allMedicines = fetchMedicines($pdo);
-$featuredMedicines = array_slice($allMedicines, 0, 4);
 $medicines = fetchMedicines($pdo, $medicineSearch, $lowStockOnly);
 $visitReports = fetchClinicVisits($pdo);
 
@@ -142,18 +141,31 @@ $adminBreadcrumbTrail = ['Reports'];
             </article>
         </section>
 
-        <?php if ($featuredMedicines): ?>
-            <section class="medicine-showcase" aria-label="Medicine stock overview">
-                <?php foreach ($featuredMedicines as $index => $medicine): ?>
-                    <article class="medicine-showcase-card medicine-tone-<?= ($index % 4) + 1 ?>">
-                        <span><img class="reports-medicine-card-icon" src="../../public/assets/images/Group%2083.svg" alt=""></span>
-                        <div>
-                            <h3><?= htmlspecialchars($medicine['Name']) ?></h3>
-                            <strong><?= (int) $medicine['Stock'] ?></strong>
-                            <small>in stock</small>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
+        <?php if ($allMedicines): ?>
+            <section class="medicine-showcase medicine-carousel" aria-label="Medicine stock overview" data-medicine-carousel>
+                <button type="button" class="medicine-carousel-button is-previous is-disabled" data-medicine-carousel-previous aria-label="Show previous medicine" aria-hidden="true" disabled>
+                    <?= studentDashboardIcon('chevron-left') ?>
+                </button>
+                <div class="medicine-showcase-viewport">
+                    <div class="medicine-showcase-track" data-medicine-carousel-track>
+                        <?php foreach ($allMedicines as $index => $medicine): ?>
+                            <article class="medicine-showcase-card medicine-tone-<?= ($index % 4) + 1 ?>" data-medicine-carousel-item>
+                                <span><img class="reports-medicine-card-icon" src="../../public/assets/images/cards.png" alt=""></span>
+                                <div class="medicine-showcase-copy">
+                                    <h3><?= htmlspecialchars($medicine['Name']) ?></h3>
+                                    <div class="medicine-showcase-stock">
+                                        <strong><?= (int) $medicine['Stock'] ?></strong>
+                                        <small>in stock</small>
+                                    </div>
+                                </div>
+                            </article>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <button type="button" class="medicine-carousel-button is-next" data-medicine-carousel-next aria-label="Show next medicine">
+                    <?= studentDashboardIcon('chevron-right') ?>
+                </button>
+                <p class="medicine-carousel-status" data-medicine-carousel-status aria-live="polite"></p>
             </section>
         <?php endif; ?>
 
@@ -290,7 +302,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                         <input type="hidden" name="action" value="delete_medicine">
                                         <input type="hidden" name="medicine_id" value="<?= (int) $medicine['MedicineID'] ?>">
                                         <button type="submit" class="btn reports-delete-button" title="Delete <?= htmlspecialchars($medicine['Name']) ?>">
-                                            <?= studentDashboardIcon('trash') ?> <span>Delete</span>
+                                            <span>Delete</span>
                                         </button>
                                     </form>
                                 </td>
@@ -331,9 +343,9 @@ $adminBreadcrumbTrail = ['Reports'];
                     <?php if ($visitReports): ?>
                         <?php foreach ($visitReports as $visit): ?>
                             <tr>
-                                <td data-label="Patient"><strong><?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? ''))) ?></strong><small>#<?= (int) $visit['StudentID'] ?></small></td>
+                                <td data-label="Patient"><strong><?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? ''))) ?></strong><small><?= ($visit['PersonType'] ?? 'student') === 'staff' ? 'Staff #' . (int) $visit['PersonID'] : '#' . (int) $visit['StudentID'] ?></small></td>
                                 <td data-label="Concern"><?= htmlspecialchars($visit['Complaint']) ?></td>
-                                <td data-label="Medicine given"><?= htmlspecialchars($visit['MedicineGiven'] ?: '—') ?></td>
+                                <td data-label="Medicine given"><?= htmlspecialchars($visit['MedicineGiven'] ?: '—') ?><?php if (!empty($visit['MedicineDosage'])): ?><small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small><?php endif; ?><?php if (!empty($visit['MedicineQuantity'])): ?><small>Quantity: <?= (int) $visit['MedicineQuantity'] ?></small><?php endif; ?></td>
                                 <td data-label="Date"><?= date('M d, Y', strtotime($visit['CreatedAt'])) ?><small><?= date('g:i A', strtotime($visit['CreatedAt'])) ?></small></td>
                                 <td data-label="Consulted by"><?= htmlspecialchars($visit['AdminName'] ?: 'Admin') ?></td>
                                 <td data-label="Status"><span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span></td>

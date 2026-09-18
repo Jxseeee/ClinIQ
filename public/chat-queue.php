@@ -3,7 +3,7 @@ require __DIR__ . '/../app/config/auth.php';
 require_once __DIR__ . '/../app/includes/helpers.php';
 
 if (!isLoggedIn()) {
-    header('Location: login.php');
+    header('Location: ' . getBasePath() . '/');
     exit;
 }
 

@@ -3,14 +3,23 @@ require_once __DIR__ . '/helpers.php';
 
 $basePath = getBasePath();
 $adminUser = currentUser();
-$adminName = 'Admin';
+$adminId = (int) ($adminUser['id'] ?? 0);
+$adminAccount = isset($settingsAdmin) && is_array($settingsAdmin) ? $settingsAdmin : null;
+if (!$adminAccount && $adminId > 0) {
+    $adminAccountStatement = $pdo->prepare('SELECT Username, FullName FROM Admins WHERE AdminID = ?');
+    $adminAccountStatement->execute([$adminId]);
+    $adminAccount = $adminAccountStatement->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+$adminName = trim((string) ($adminAccount['FullName'] ?? '')) ?: 'Admin';
 $adminInitial = strtoupper(substr($adminName, 0, 1));
-$adminProfileImagePath = fetchProfileImagePath($pdo, 'admin', (int) ($adminUser['id'] ?? 0));
+$adminProfileImagePath = fetchProfileImagePath($pdo, 'admin', $adminId);
 $adminProfileImageUrl = profileImageUrl($adminProfileImagePath, $basePath);
 $currentPage = basename(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''));
 $adminActivePage = match ($currentPage) {
     'students.php', 'add-student.php', 'edit-student.php', 'view-student.php' => 'students.php',
     'reports.php' => 'reports.php',
+    'nurses.php' => 'nurses.php',
+    'check-in.php' => 'check-in.php',
     'announcements.php', 'add-announcement.php', 'edit-announcement.php' => 'announcements.php',
     'messages.php' => 'messages.php',
     'change-password.php' => 'settings.php',
@@ -27,10 +36,15 @@ $adminNotifications = fetchNotifications($pdo, 'admin');
 $adminNavItems = [
     'index.php'         => ['Dashboard',     'dashboard', $basePath . '/public/index.php'],
     'reports.php'       => ['Reports',       'report',    $basePath . '/app/admin/reports.php'],
+    'nurses.php'        => ['Nurses',        'nurse',     $basePath . '/app/admin/nurses.php'],
+    'check-in.php'      => ['Check In',       'medical',   $basePath . '/app/admin/check-in.php'],
     'students.php'      => ['Students',      'records',   $basePath . '/app/admin/students.php'],
     'announcements.php' => ['Announcements', 'megaphone', $basePath . '/app/admin/announcements.php'],
     'messages.php'      => ['Messages',      'message',   $basePath . '/app/admin/messages.php'],
 ];
+$adminPageIcon = $adminActivePage === 'settings.php'
+    ? 'settings'
+    : ($adminNavItems[$adminActivePage][1] ?? 'dashboard');
 ?>
 <script src="<?= $basePath ?>/public/assets/js/theme.js"></script>
 <aside class="student-sidebar">
@@ -95,7 +109,7 @@ $adminNavItems = [
 <main class="student-dashboard-main">
     <header class="student-dashboard-topbar">
         <div class="student-breadcrumb">
-            <span class="student-topbar-icon"><?= studentDashboardIcon('dashboard') ?></span>
+            <span class="student-topbar-icon"><?= studentDashboardIcon($adminPageIcon) ?></span>
             <?php if (!empty($adminBreadcrumbTrail) && is_array($adminBreadcrumbTrail)): ?>
                 <?php foreach ($adminBreadcrumbTrail as $item): ?>
                     <span><?= htmlspecialchars($item) ?></span>

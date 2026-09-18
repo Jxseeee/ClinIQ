@@ -1,13 +1,16 @@
 <?php
 require __DIR__ . '/../app/config/auth.php';
 
+$basePath = getBasePath();
+$assetsPath = $basePath . '/public/assets';
+
 if (isLoggedIn()) {
     if ($_SESSION['role'] === 'admin') {
-        header('Location: index.php');
+        header('Location: ' . $basePath . '/public/index.php');
     } elseif (studentMustChangePassword()) {
-        header('Location: ../students/change-password.php?force=1');
+        header('Location: ' . $basePath . '/students/change-password.php?force=1');
     } else {
-        header('Location: ../students/index.php');
+        header('Location: ' . $basePath . '/students/index.php');
     }
     exit;
 }
@@ -30,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id']   = $admin['AdminID'];
             $_SESSION['role']      = 'admin';
             $_SESSION['user_name'] = 'Admin';
-            header('Location: index.php');
+            header('Location: ' . $basePath . '/public/index.php');
             exit;
         }
 
@@ -46,9 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['must_change_password'] = (bool) ($student['MustChangePassword'] ?? false);
 
             if ($_SESSION['must_change_password']) {
-                header('Location: ../students/change-password.php?force=1');
+                header('Location: ' . $basePath . '/students/change-password.php?force=1');
             } else {
-                header('Location: ../students/index.php');
+                header('Location: ' . $basePath . '/students/index.php');
             }
             exit;
         }
@@ -63,16 +66,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link rel="icon" type="image/png" href="assets/images/favicon.png">
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/tailwind.css">
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/style.css">
+    <link rel="icon" type="image/png" href="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png">
 </head>
 <body class="login-page antialiased selection:bg-green-200 selection:text-green-950">
     <main class="portal-login-shell">
         <section class="portal-brand-panel" aria-labelledby="portal-title">
             <nav class="portal-brand-nav" aria-label="FCAT Clinic">
-                <a href="login.php" class="portal-brand-link">
-                    <img src="assets/images/favicon.png" alt="">
+                <a href="<?= htmlspecialchars($basePath . '/') ?>" class="portal-brand-link">
+                    <img src="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png" alt="">
                     <span>FCAT Clinic</span>
                 </a>
                 <span class="portal-founded">Est. 1993</span>
@@ -84,7 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p class="portal-brand-copy">Campus health records and clinic support, handled with clarity and care.</p>
 
                 <div class="portal-seal-stage">
-                    <img class="portal-logo" src="assets/images/fcat-clinic-logo.png" alt="Fernandez College of Arts and Technology seal">
+                    <img class="portal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.png" alt="Fernandez College of Arts and Technology seal">
                 </div>
             </div>
 
@@ -99,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <section class="portal-actions-panel" aria-labelledby="login-title">
             <div class="portal-actions-inner">
                 <div class="portal-signin-heading">
-                    <img class="modal-logo" src="assets/images/favicon.png" alt="FCAT Clinic Logo">
+                    <img class="modal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png" alt="FCAT Clinic Logo">
                     <div>
                         <p>Secure portal access</p>
                         <h2 id="login-title">Sign in to your account</h2>
@@ -116,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="alert alert-danger modal-login-alert"><?= htmlspecialchars($error) ?></div>
                 <?php endif; ?>
 
-                <form method="POST" action="" class="modal-login-form portal-signin-form">
+                <form method="POST" action="<?= htmlspecialchars($basePath . '/') ?>" class="modal-login-form portal-signin-form">
                     <div class="form-group">
                         <label for="username">Student ID or username</label>
                         <input type="text" id="username" name="username"
@@ -159,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
-    <script src="assets/js/motion.js"></script>
-    <script src="assets/js/main.js"></script>
+    <script src="<?= htmlspecialchars($assetsPath) ?>/js/motion.js"></script>
+    <script src="<?= htmlspecialchars($assetsPath) ?>/js/main.js"></script>
 </body>
 </html>

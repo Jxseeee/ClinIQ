@@ -4,26 +4,6 @@ require_once __DIR__ . '/../app/includes/helpers.php';
 requireAdmin();
 
 $user = currentUser();
-$occupancyErrors = [];
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_clinic_occupancy') {
-    verifyCsrfToken();
-    $metric = (string) ($_POST['metric'] ?? '');
-    $countValue = trim((string) ($_POST['count'] ?? ''));
-
-    if ($countValue === '' || !ctype_digit($countValue)) {
-        $occupancyErrors[] = 'Clinic occupancy must be a whole number from 0 to 999.';
-    } else {
-        try {
-            updateClinicOccupancy($pdo, $metric, (int) $countValue, (int) $_SESSION['user_id']);
-            header('Location: index.php?occupancy=updated');
-            exit;
-        } catch (InvalidArgumentException | RuntimeException $error) {
-            $occupancyErrors[] = $error->getMessage();
-        }
-    }
-}
-
 $students = $pdo->query(
     "SELECT StudentID, FirstName, LastName, Email, Phone, CreatedAt FROM Students ORDER BY CreatedAt DESC"
 )->fetchAll(PDO::FETCH_ASSOC);
@@ -58,13 +38,6 @@ $adminPageTitle = 'Dashboard';
 
         <h1>Welcome, Admin</h1>
 
-        <?php if (($_GET['occupancy'] ?? '') === 'updated'): ?>
-            <div class="alert alert-success">Clinic occupancy updated.</div>
-        <?php endif; ?>
-        <?php if (!empty($occupancyErrors)): ?>
-            <div class="alert alert-danger"><?= htmlspecialchars($occupancyErrors[0]) ?></div>
-        <?php endif; ?>
-
         <div class="student-stat-grid admin-dashboard-stat-grid">
             <article class="student-stat-card admin-primary-stat">
                 <div>
@@ -94,36 +67,18 @@ $adminPageTitle = 'Dashboard';
             </article>
 
             <article class="student-stat-card admin-occupancy-stat">
-                <form method="POST" class="occupancy-stat-form">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
-                    <input type="hidden" name="action" value="update_clinic_occupancy">
-                    <input type="hidden" name="metric" value="nurses">
+                <div class="nurses-dashboard-stat-copy">
                     <h2>Nurses on duty</h2>
-                    <div class="occupancy-edit-row">
-                        <input type="text" name="count" value="<?= (int) $clinicOccupancy['NursesOnDuty'] ?>"
-                               class="occupancy-number integer-input" inputmode="numeric"
-                               pattern="[0-9]{1,3}" maxlength="3" aria-label="Nurses on duty">
-                        <button type="submit" class="occupancy-update-button">Update</button>
-                    </div>
-                    <small>Currently attending</small>
-                </form>
+                    <strong><?= (int) $clinicOccupancy['NursesOnDuty'] ?></strong>
+                </div>
                 <span class="stat-icon admin-stat-blue"><?= studentDashboardIcon('nurse') ?></span>
             </article>
 
             <article class="student-stat-card admin-occupancy-stat">
-                <form method="POST" class="occupancy-stat-form">
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
-                    <input type="hidden" name="action" value="update_clinic_occupancy">
-                    <input type="hidden" name="metric" value="students">
-                    <h2>Students in clinic</h2>
-                    <div class="occupancy-edit-row">
-                        <input type="text" name="count" value="<?= (int) $clinicOccupancy['StudentsInClinic'] ?>"
-                               class="occupancy-number integer-input" inputmode="numeric"
-                               pattern="[0-9]{1,3}" maxlength="3" aria-label="Students in clinic">
-                        <button type="submit" class="occupancy-update-button">Update</button>
-                    </div>
-                    <small>Currently receiving care</small>
-                </form>
+                <div class="nurses-dashboard-stat-copy">
+                    <h2>People in clinic</h2>
+                    <strong><?= (int) $clinicOccupancy['StudentsInClinic'] ?></strong>
+                </div>
                 <span class="stat-icon pink"><?= studentDashboardIcon('people') ?></span>
             </article>
         </div>

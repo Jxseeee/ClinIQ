@@ -202,6 +202,12 @@ $studentContentClass = 'patient-records-content';
                                 <?php if (!empty($visit['MedicineGiven'])): ?>
                                     <small>Medicine Given: <?= htmlspecialchars($visit['MedicineGiven']) ?></small>
                                 <?php endif; ?>
+                                <?php if (!empty($visit['MedicineDosage'])): ?>
+                                    <small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small>
+                                <?php endif; ?>
+                                <?php if (!empty($visit['MedicineQuantity'])): ?>
+                                    <small>Quantity Given: <?= (int) $visit['MedicineQuantity'] ?></small>
+                                <?php endif; ?>
                             </div>
                             <strong><?= htmlspecialchars(ucfirst($visit['Status'])) ?></strong>
                         </article>
@@ -216,14 +222,14 @@ $studentContentClass = 'patient-records-content';
             <div class="consent-paper-inner">
                 <h2>CONSENT FORM</h2>
                 <p>I give consent for my child to receive the following:</p>
-                <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks($student['ConsentFirstAid'] ?? null) ?></span></div>
-                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span><?= consentChoiceMarks($student['ConsentNonPrescription'] ?? null) ?></span></div>
-                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span><?= consentChoiceMarks($student['ConsentHospitalization'] ?? null) ?></span></div>
+                <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks(null) ?></span></div>
+                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span><?= consentChoiceMarks(null) ?></span></div>
+                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span><?= consentChoiceMarks(null) ?></span></div>
                 <p>I acknowledge that it is my responsibility to inform FCAT school clinic of any update in my child's medical records.</p>
                 <p>Safety and well-being of the learner is the top priority. If in case of emergency, we ask the parents to:</p>
-                <p><?= (int) ($student['EmergencyDecisionConsent'] ?? 0) === 1 ? '☑' : '☐' ?> give the school consent for the decision to attend the learner's need.</p>
-                <p><?= (int) ($student['EmergencyCallGuardian'] ?? 0) === 1 ? '☑' : '☐' ?> call the parents/guardians first.</p>
-                <p><?= trim((string) ($student['EmergencyOther'] ?? '')) !== '' ? '☑' : '☐' ?> Others: <?= htmlspecialchars($student['EmergencyOther'] ?? '') ?></p>
+                <p>☐ give the school consent for the decision to attend the learner's need.</p>
+                <p>☐ call the parents/guardians first.</p>
+                <p>☐ Others: <?= htmlspecialchars($student['EmergencyOther'] ?? '') ?></p>
                 <div class="consent-signature">
                     <span>Parent's/Guardian's Name: ______________________________</span>
                     <span>Signature: ______________________________</span>

@@ -16,9 +16,9 @@ CREATE TABLE IF NOT EXISTS Medicines (
 );
 
 INSERT IGNORE INTO Medicines (Name, Stock, Dosage, Description, LowStockThreshold, CreatedByAdminID) VALUES
-('Paracetamol', 80, '500 mg tablet', 'Used for mild to moderate pain and fever.', 20, 1),
-('Ibuprofen', 18, '200 mg tablet', 'Used for pain and inflammation.', 20, 1),
-('Cetirizine', 12, '10 mg tablet', 'Allergy relief medication.', 20, 1),
-('Bandage', 77, 'Sterile bandage', 'Used to cover and protect minor wounds.', 20, 1),
-('Ferrous Sulfate', 67, '30 mg tablet', 'Used to support iron deficiency care.', 20, 1),
-('Oral Rehydration Salts', 15, 'One sachet', 'Used to help prevent dehydration.', 20, 1);
+('Paracetamol', 80, '500 mg tablet', 'Used for mild to moderate pain and fever.', 20, NULL),
+('Ibuprofen', 18, '200 mg tablet', 'Used for pain and inflammation.', 20, NULL),
+('Cetirizine', 12, '10 mg tablet', 'Allergy relief medication.', 20, NULL),
+('Bandage', 77, 'Sterile bandage', 'Used to cover and protect minor wounds.', 20, NULL),
+('Ferrous Sulfate', 67, '30 mg tablet', 'Used to support iron deficiency care.', 20, NULL),
+('Oral Rehydration Salts', 15, 'One sachet', 'Used to help prevent dehydration.', 20, NULL);

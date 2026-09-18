@@ -70,11 +70,11 @@ $adminBreadcrumbTrail = ['Messages'];
                 </div>
                 <div class="student-chat-contact admin-chat-contact">
                     <span class="student-chat-contact-icon"><?= studentDashboardIcon('headset') ?></span>
-                    <div>
+                    <div class="student-chat-contact-copy">
                         <strong>Student Conversations</strong>
                         <small>Manage clinic chat requests</small>
-                        <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                     </div>
+                    <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                 </div>
             </div>
 
@@ -135,7 +135,7 @@ $adminBreadcrumbTrail = ['Messages'];
                             <input type="hidden" name="action" value="update_chat_status">
                             <input type="hidden" name="student_id" value="<?= (int) $selectedStudent['StudentID'] ?>">
                             <input type="hidden" name="status" value="<?= ($conversation['Status'] ?? 'open') === 'resolved' ? 'open' : 'resolved' ?>">
-                            <button type="submit" class="btn btn-success">
+                            <button type="submit" class="btn chat-status-action">
                                 <?= ($conversation['Status'] ?? 'open') === 'resolved' ? 'Reopen' : 'Mark Resolved' ?>
                             </button>
                             <?php $selectedStatus = strtolower((string) ($conversation['Status'] ?? 'open')); ?>

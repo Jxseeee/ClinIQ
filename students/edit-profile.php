@@ -22,6 +22,7 @@ $errors = [];
 $wizardStartStep = 1;
 $clinicTimezone = new DateTimeZone('Asia/Manila');
 $maximumBirthDate = new DateTimeImmutable('today', $clinicTimezone);
+$minimumDiagnosisDate = new DateTimeImmutable('1900-01-01', $clinicTimezone);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrfToken();
@@ -38,9 +39,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $g1LastName  = $f('g1_last_name');
     $g1FirstName = $f('g1_first_name');
     $g1Mobile    = $f('g1_mobile');
+    $checkedIllnesses = array_values(array_filter(
+        (array) ($_POST['illness'] ?? []),
+        static fn($illness): bool => is_string($illness)
+    ));
 
     $stepOneErrors = [];
     $stepTwoErrors = [];
+    $stepThreeErrors = [];
 
     if ($course === '')      $stepOneErrors[] = 'Course is required.';
     if ($yearLevel === '')   $stepOneErrors[] = 'Year Level is required.';
@@ -64,8 +70,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($g1Mobile === '') $stepTwoErrors[] = 'Guardian 1 mobile number is required.';
 
-    $errors = array_merge($stepOneErrors, $stepTwoErrors);
-    $wizardStartStep = !empty($stepOneErrors) ? 1 : (!empty($stepTwoErrors) ? 2 : 1);
+    foreach ($checkedIllnesses as $illness) {
+        if (!in_array($illness, $illnesses, true)) {
+            $stepThreeErrors[] = 'Choose a valid medical-history item.';
+            continue;
+        }
+
+        $diagnosisDateValue = $f('illness_date_' . md5($illness));
+        if ($diagnosisDateValue === '') {
+            continue;
+        }
+
+        $diagnosisDate = DateTimeImmutable::createFromFormat('!Y-m-d', $diagnosisDateValue, $clinicTimezone);
+        if (!$diagnosisDate || $diagnosisDate->format('Y-m-d') !== $diagnosisDateValue) {
+            $stepThreeErrors[] = 'Choose a valid diagnosis date for ' . $illness . '.';
+        } elseif ($diagnosisDate < $minimumDiagnosisDate || $diagnosisDate > $maximumBirthDate) {
+            $stepThreeErrors[] = 'Diagnosis date for ' . $illness . ' must be between January 1, 1900 and today.';
+        }
+    }
+
+    $errors = array_merge($stepOneErrors, $stepTwoErrors, $stepThreeErrors);
+    $wizardStartStep = !empty($stepOneErrors)
+        ? 1
+        : (!empty($stepTwoErrors) ? 2 : (!empty($stepThreeErrors) ? 3 : 1));
 
     if (empty($errors)) {
         try {
@@ -109,13 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->prepare("DELETE FROM MedicalHistory WHERE StudentID = ?")->execute([$sid]);
-            $checkedIllnesses = $_POST['illness'] ?? [];
             foreach ($checkedIllnesses as $illness) {
-                $safeIllness = htmlspecialchars_decode($illness);
                 $stmt = $pdo->prepare("INSERT INTO MedicalHistory (StudentID, Illness, DiagnosisDate, DiagnosisAge) VALUES (?,?,?,?)");
                 $stmt->execute([
                     $sid,
-                    $safeIllness,
+                    $illness,
                     $f('illness_date_' . md5($illness)) ?: null,
                     $f('illness_age_' . md5($illness)) ?: null,
                 ]);
@@ -334,7 +359,9 @@ $studentContentClass = 'clinic-wizard-content';
             </div>
             <div class="clinic-wizard-actions">
                 <span></span>
-                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-next" data-wizard-next>
+                    <span>Next</span><?= studentDashboardIcon('chevron-right') ?>
+                </button>
             </div>
         </section>
 
@@ -460,8 +487,12 @@ $studentContentClass = 'clinic-wizard-content';
                 </div>
             </div>
             <div class="clinic-wizard-actions">
-                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
-                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-back" data-wizard-back>
+                    <?= studentDashboardIcon('chevron-left') ?><span>Back</span>
+                </button>
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-next" data-wizard-next>
+                    <span>Next</span><?= studentDashboardIcon('chevron-right') ?>
+                </button>
             </div>
         </section>
 
@@ -472,9 +503,17 @@ $studentContentClass = 'clinic-wizard-content';
             <div class="illness-grid">
                 <?php foreach ($illnesses as $ill):
                     $key = md5($ill);
-                    $checked = isset($medMap[$ill]);
-                    $savedDate = $medMap[$ill]['DiagnosisDate'] ?? '';
-                    $savedAge  = $medMap[$ill]['DiagnosisAge'] ?? '';
+                    $dateFieldName = 'illness_date_' . $key;
+                    $ageFieldName = 'illness_age_' . $key;
+                    $checked = $_SERVER['REQUEST_METHOD'] === 'POST'
+                        ? in_array($ill, (array) ($_POST['illness'] ?? []), true)
+                        : isset($medMap[$ill]);
+                    $savedDate = $_SERVER['REQUEST_METHOD'] === 'POST' && array_key_exists($dateFieldName, $_POST)
+                        ? trim((string) $_POST[$dateFieldName])
+                        : (string) ($medMap[$ill]['DiagnosisDate'] ?? '');
+                    $savedAge = $_SERVER['REQUEST_METHOD'] === 'POST' && array_key_exists($ageFieldName, $_POST)
+                        ? trim((string) $_POST[$ageFieldName])
+                        : (string) ($medMap[$ill]['DiagnosisAge'] ?? '');
                 ?>
                 <div class="illness-row">
                     <label class="illness-check">
@@ -482,8 +521,11 @@ $studentContentClass = 'clinic-wizard-content';
                                <?= $checked ? 'checked' : '' ?>>
                         <span><?= htmlspecialchars($ill) ?></span>
                     </label>
-                    <input type="text" name="illness_date_<?= $key ?>" value="<?= htmlspecialchars($savedDate) ?>"
-                              placeholder="mm/dd/yyyy" class="illness-field">
+                    <input type="date" name="<?= $dateFieldName ?>" value="<?= htmlspecialchars($savedDate) ?>"
+                              min="<?= $minimumDiagnosisDate->format('Y-m-d') ?>"
+                              max="<?= $maximumBirthDate->format('Y-m-d') ?>"
+                              class="illness-field illness-date-field" data-past-date-picker
+                              aria-label="Diagnosis date for <?= htmlspecialchars($ill) ?>">
                           <input type="text" name="illness_age_<?= $key ?>" value="<?= htmlspecialchars($savedAge) ?>"
                               placeholder="Age" class="illness-field illness-age integer-input"
                               inputmode="numeric" pattern="[0-9]{1,3}" maxlength="3">
@@ -515,8 +557,12 @@ $studentContentClass = 'clinic-wizard-content';
                 </div>
             </div>
             <div class="clinic-wizard-actions">
-                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
-                <button type="button" class="btn btn-success" data-wizard-next>Next</button>
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-back" data-wizard-back>
+                    <?= studentDashboardIcon('chevron-left') ?><span>Back</span>
+                </button>
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-next" data-wizard-next>
+                    <span>Next</span><?= studentDashboardIcon('chevron-right') ?>
+                </button>
             </div>
         </section>
 
@@ -538,11 +584,13 @@ $studentContentClass = 'clinic-wizard-content';
                     <p class="clinic-consent-display-check">☐ Other: ______________________________</p>
                 </div>
             </div>
-            <div class="clinic-wizard-actions">
-                <button type="button" class="btn btn-secondary" data-wizard-back>Back</button>
+            <div class="clinic-wizard-actions clinic-wizard-actions-final">
+                <button type="button" class="btn clinic-wizard-action clinic-wizard-action-back" data-wizard-back>
+                    <?= studentDashboardIcon('chevron-left') ?><span>Back</span>
+                </button>
                 <div class="clinic-wizard-final-actions">
-                    <a href="download-consent-form.php" class="btn btn-secondary clinic-consent-download"><?= studentDashboardIcon('file') ?> Download consent form</a>
-                    <button type="submit" class="btn btn-success">Save clinic form</button>
+                    <a href="download-consent-form.php" class="btn clinic-wizard-action clinic-wizard-action-download clinic-consent-download">Download form</a>
+                    <button type="submit" class="btn clinic-wizard-action clinic-wizard-action-save">Save clinic form</button>
                 </div>
             </div>
         </section>
