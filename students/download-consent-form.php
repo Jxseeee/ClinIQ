@@ -11,6 +11,7 @@ if (!$data) {
     exit;
 }
 
+auditLog($pdo, 'clinic_form', 'form.pdf_downloaded', 'Downloaded the consent form PDF (Form 02).');
 downloadStudentPdf(
     studentConsentFormHtml($data['student'], $data['g1']),
     'consent-form-' . $studentId . '.pdf'

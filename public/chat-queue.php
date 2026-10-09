@@ -12,6 +12,12 @@ if ($_SESSION['role'] === 'student' && studentMustChangePassword()) {
     exit;
 }
 
+// Students can't take a chat slot until their required clinic form is complete.
+if ($_SESSION['role'] === 'student' && !studentClinicFormComplete()) {
+    header('Location: ../students/edit-profile.php?required=1');
+    exit;
+}
+
 $status = chatQueueStatus($pdo);
 if ($status['allowed']) {
     header('Location: ' . $status['return_url']);
@@ -26,10 +32,10 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="5">
+    <noscript><meta http-equiv="refresh" content="5"></noscript>
     <title>Chat Queue</title>
     <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
 <body class="antialiased selection:bg-green-200 selection:text-green-950">

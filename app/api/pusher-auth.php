@@ -10,6 +10,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Students must change their default password and complete the clinic form before using chat.
+if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Complete your clinic form before using this feature.']);
+    exit;
+}
+
 $socketId    = $_POST['socket_id'] ?? '';
 $channelName = $_POST['channel_name'] ?? '';
 

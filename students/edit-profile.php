@@ -9,14 +9,7 @@ if (!$data) { header("Location: ../public/logout.php"); exit; }
 
 ['student' => $student, 'g1' => $g1, 'g2' => $g2, 'medMap' => $medMap] = $data;
 
-$illnesses = [
-    'Asthma', 'Chicken Pox', 'Chronic Ear Infections or Otitis Media',
-    'Diabetes', 'Epilepsy', 'Fainting Spells', 'Febrile Convulsions',
-    'Heart Disorder', 'Hepatitis A', 'Hepatitis B',
-    'Measles', 'Meningitis', 'Mumps', 'Primary Complex',
-    'Rubella', 'Scoliosis', 'Skin Problems',
-    'Urinary Tract Infections', 'Whooping Cough', 'Others',
-];
+$illnesses = clinicIllnessList();
 
 $errors = [];
 $wizardStartStep = 1;
@@ -26,7 +19,9 @@ $minimumDiagnosisDate = new DateTimeImmutable('1900-01-01', $clinicTimezone);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrfToken();
-    $f = fn($key) => trim($_POST[$key] ?? '');
+    // Run any schema fix before the save transaction; ALTER TABLE would implicitly commit it.
+    ensurePrivacyConsentColumn();
+    $f = static fn(string $key): string => is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : '';
 
     $course      = $f('course');
     $yearLevel   = $f('year_level');
@@ -38,6 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $city          = $f('city');
     $g1LastName  = $f('g1_last_name');
     $g1FirstName = $f('g1_first_name');
+    $mobileErrors = [];
+    foreach (['g1_mobile' => 'Guardian 1 mobile number', 'g1_emergency_mobile' => 'Guardian 1 emergency contact mobile',
+              'g2_mobile' => 'Guardian 2 mobile number', 'g2_emergency_mobile' => 'Guardian 2 emergency contact mobile'] as $mobileKey => $mobileLabel) {
+        $_POST[$mobileKey] = validateMobileNumber((string) ($_POST[$mobileKey] ?? ''), $mobileLabel, $mobileErrors, $mobileKey === 'g1_mobile');
+    }
     $g1Mobile    = $f('g1_mobile');
     $checkedIllnesses = array_values(array_filter(
         (array) ($_POST['illness'] ?? []),
@@ -68,12 +68,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($g1LastName === '' || $g1FirstName === '') {
         $stepTwoErrors[] = 'Guardian 1 name is required.';
     }
-    if ($g1Mobile === '') $stepTwoErrors[] = 'Guardian 1 mobile number is required.';
+    $stepTwoErrors = array_merge($stepTwoErrors, $mobileErrors);
+
+    // Server-side limits that match the database columns (browsers can skip maxlength).
+    validateMaxLengths($_POST, [
+        'middle_name' => ['Middle name', 50], 'course' => ['Course', 100], 'year_level' => ['Year level', 20],
+        'department' => ['Department', 100], 'preferred_name' => ['Preferred name', 50], 'citizenship' => ['Citizenship', 50],
+        'gender' => ['Gender', 20], 'height' => ['Height', 10], 'weight' => ['Weight', 10], 'home_telephone' => ['Home telephone', 20],
+        'street_address' => ['Street address', 255], 'municipality' => ['Municipality', 100], 'city' => ['City', 100],
+    ], $stepOneErrors);
+    foreach (['g1_' => 'Guardian 1', 'g2_' => 'Guardian 2'] as $prefix => $guardianLabel) {
+        validateMaxLengths($_POST, [
+            $prefix . 'relationship' => [$guardianLabel . ' relationship', 50],
+            $prefix . 'last_name' => [$guardianLabel . ' last name', 50],
+            $prefix . 'first_name' => [$guardianLabel . ' first name', 50],
+            $prefix . 'middle_name' => [$guardianLabel . ' middle name', 50],
+            $prefix . 'office_phone' => [$guardianLabel . ' office phone', 20],
+            $prefix . 'email' => [$guardianLabel . ' email address', 100],
+            $prefix . 'emergency_name' => [$guardianLabel . ' emergency contact name', 100],
+        ], $stepTwoErrors);
+    }
+    validateMaxLengths($_POST, [
+        'custodial_parent' => ['Custodial parent', 20], 'correspondence_to' => ['Correspondence', 20],
+    ], $stepTwoErrors);
+    validateMaxLengths($_POST, [
+        'medications_regular' => ['Regular medications', 2000], 'allergy_food' => ['Food allergies', 255],
+        'allergy_medicine' => ['Medicine allergies', 255], 'allergy_others' => ['Other allergies', 255],
+    ], $stepThreeErrors);
 
     foreach ($checkedIllnesses as $illness) {
         if (!in_array($illness, $illnesses, true)) {
             $stepThreeErrors[] = 'Choose a valid medical-history item.';
             continue;
+        }
+
+        $diagnosisAgeValue = $f('illness_age_' . md5($illness));
+        if ($diagnosisAgeValue !== '' && (!ctype_digit($diagnosisAgeValue) || (int) $diagnosisAgeValue > 150)) {
+            $stepThreeErrors[] = 'Age of diagnosis for ' . $illness . ' must be a whole number from 0 to 150.';
         }
 
         $diagnosisDateValue = $f('illness_date_' . md5($illness));
@@ -89,10 +120,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    $errors = array_merge($stepOneErrors, $stepTwoErrors, $stepThreeErrors);
+    $stepFourErrors = [];
+    if (($_POST['privacy_consent'] ?? '') !== '1') {
+        $stepFourErrors[] = 'Please agree to the Data Privacy Act consent before saving your clinic form.';
+    }
+
+    $errors = array_merge($stepOneErrors, $stepTwoErrors, $stepThreeErrors, $stepFourErrors);
     $wizardStartStep = !empty($stepOneErrors)
         ? 1
-        : (!empty($stepTwoErrors) ? 2 : (!empty($stepThreeErrors) ? 3 : 1));
+        : (!empty($stepTwoErrors) ? 2 : (!empty($stepThreeErrors) ? 3 : (!empty($stepFourErrors) ? 4 : 1)));
 
     if (empty($errors)) {
         try {
@@ -113,6 +149,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $f('custodial_parent'), $f('correspondence_to'),
                 $sid
             ]);
+
+            if (ensurePrivacyConsentColumn()) {
+                $pdo->prepare("UPDATE Students SET PrivacyConsentAt = NOW() WHERE StudentID = ?")->execute([$sid]);
+            }
 
             foreach (['guardian1' => 'g1_', 'guardian2' => 'g2_'] as $type => $prefix) {
                 $pdo->prepare("DELETE FROM Guardians WHERE StudentID = ? AND GuardianType = ?")
@@ -147,11 +187,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
+
+            // Section-level summary of what changed, for the audit log (values are not recorded).
+            $differs = static fn(?array $saved, string $column, string $postKey): bool
+                => trim((string) ($saved[$column] ?? '')) !== $f($postKey);
+            $studentInfoFields = [
+                'MiddleName' => 'middle_name', 'Course' => 'course', 'YearLevel' => 'year_level', 'Department' => 'department',
+                'PreferredName' => 'preferred_name', 'DateOfBirth' => 'date_of_birth', 'Citizenship' => 'citizenship', 'Gender' => 'gender',
+                'Height' => 'height', 'Weight' => 'weight', 'HomeTelephone' => 'home_telephone', 'StreetAddress' => 'street_address',
+                'Municipality' => 'municipality', 'City' => 'city',
+            ];
+            $guardianFields = [
+                'Relationship' => 'relationship', 'LastName' => 'last_name', 'FirstName' => 'first_name', 'MiddleName' => 'middle_name',
+                'OfficePhone' => 'office_phone', 'MobileNumber' => 'mobile', 'EmailAddress' => 'email',
+                'EmergencyContactName' => 'emergency_name', 'EmergencyContactMobile' => 'emergency_mobile',
+            ];
+            $medicalFields = [
+                'MedicationsRegular' => 'medications_regular', 'AllergyFood' => 'allergy_food',
+                'AllergyMedicine' => 'allergy_medicine', 'AllergyOthers' => 'allergy_others',
+            ];
+            $anyDiffers = static function (?array $saved, array $fields, string $prefix = '') use ($differs): bool {
+                foreach ($fields as $column => $postKey) {
+                    if ($differs($saved, $column, $prefix . $postKey)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            $savedIllnesses = array_keys($medMap);
+            $newIllnesses = $checkedIllnesses;
+            sort($savedIllnesses);
+            sort($newIllnesses);
+
+            $changedSections = [];
+            if ($anyDiffers($student, $studentInfoFields)) {
+                $changedSections[] = 'student information';
+            }
+            if ($anyDiffers($g1, $guardianFields, 'g1_') || $anyDiffers($g2, $guardianFields, 'g2_')
+                || $anyDiffers($student, ['CustodialParent' => 'custodial_parent', 'CorrespondenceTo' => 'correspondence_to'])) {
+                $changedSections[] = 'parent/guardian information';
+            }
+            if ($savedIllnesses !== $newIllnesses || $anyDiffers($student, $medicalFields)) {
+                $changedSections[] = 'medical history and allergies';
+            }
+            $firstCompletion = empty($student['PrivacyConsentAt']);
+            auditLog(
+                $pdo,
+                'clinic_form',
+                $firstCompletion ? 'form.clinic_completed' : 'form.clinic_updated',
+                ($firstCompletion
+                    ? 'Completed the required clinic form (Form 01) and agreed to the Data Privacy Notice (RA 10173).'
+                    : 'Saved the clinic form (Form 01) and re-confirmed Data Privacy Act consent.')
+                . ($changedSections ? ' Changed: ' . implode(', ', $changedSections) . '.' : ' No details changed.')
+            );
+            $_SESSION['clinic_form_saved'] = true;
             header("Location: profile.php?success=updated");
             exit;
         } catch (PDOException $e) {
             $pdo->rollBack();
-            $errors[] = 'Database error: ' . $e->getMessage();
+            error_log('Clinic form update failed: ' . $e->getMessage());
+            $errors[] = 'Your clinic form could not be saved. Please try again.';
             $wizardStartStep = max(1, min(4, (int) ($_POST['wizard_step'] ?? 1)));
         }
     }
@@ -174,13 +269,27 @@ $rawStudentValue = static function (string $key) use ($student, $postFieldMap): 
     return (string) ($student[$key] ?? '');
 };
 $v = fn($key) => htmlspecialchars($rawStudentValue($key));
-$gv = fn($arr, $key) => htmlspecialchars($arr[$key] ?? '');
+// Guardian fields: show what the student just submitted when the form is redisplayed with errors.
+$guardianPostKeys = [
+    'Relationship' => 'relationship', 'LastName' => 'last_name', 'FirstName' => 'first_name', 'MiddleName' => 'middle_name',
+    'OfficePhone' => 'office_phone', 'MobileNumber' => 'mobile', 'EmailAddress' => 'email',
+    'EmergencyContactName' => 'emergency_name', 'EmergencyContactMobile' => 'emergency_mobile',
+];
+$guardianRaw = static function (string $prefix, array $guardian, string $column) use ($guardianPostKeys): string {
+    $postKey = $prefix . ($guardianPostKeys[$column] ?? '');
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($guardianPostKeys[$column]) && is_string($_POST[$postKey] ?? null)) {
+        return trim($_POST[$postKey]);
+    }
+    return (string) ($guardian[$column] ?? '');
+};
+$gv = static fn(string $prefix, array $guardian, string $column): string => htmlspecialchars($guardianRaw($prefix, $guardian, $column));
 $wizardStepMeta = [
     1 => ['Student Information', 'Provide accurate personal and academic information.'],
     2 => ['Parent / Guardian Information', 'Add guardian and emergency contact details.'],
     3 => ['Past History', 'Record medical history, medicines, and allergies.'],
-    4 => ['Consent Form', 'Review the consent document and download a copy.'],
+    4 => ['Consent Form', 'Review the consent document, agree to the data privacy notice, and save.'],
 ];
+$clinicFormRequired = !studentClinicFormComplete();
 $studentPageTitle = 'Clinic Form';
 $studentContentClass = 'clinic-wizard-content';
 ?>
@@ -191,13 +300,15 @@ $studentContentClass = 'clinic-wizard-content';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Edit Profile</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="clinic-wizard-page">
-        <a href="profile.php" class="clinic-wizard-back">&larr; My Profile</a>
+        <?php if (!$clinicFormRequired): ?>
+            <a href="profile.php" class="clinic-wizard-back">&larr; My Profile</a>
+        <?php endif; ?>
 
         <ol class="clinic-wizard-progress" aria-label="Clinic form progress">
             <?php foreach ($wizardStepMeta as $stepNumber => [$stepTitle]): ?>
@@ -223,6 +334,15 @@ $studentContentClass = 'clinic-wizard-content';
             </span>
         </header>
 
+        <?php if ($clinicFormRequired): ?>
+            <div class="clinic-form-required-notice" role="status">
+                <span aria-hidden="true"><?= studentDashboardIcon('shield') ?></span>
+                <div>
+                    <strong>Complete your clinic form to continue</strong>
+                    <p>The FCAT School Clinic needs your health information before you can use the rest of the portal. Fill out all four steps and save the form to unlock your dashboard, patient records, and messages.</p>
+                </div>
+            </div>
+        <?php endif; ?>
         <?php if (isset($_GET['success'])): ?>
             <div class="alert alert-success">Profile updated successfully.</div>
         <?php endif; ?>
@@ -377,43 +497,43 @@ $studentContentClass = 'clinic-wizard-content';
                         <select name="g1_relationship">
                             <option value="">Select role</option>
                             <?php foreach (['Mother','Father','Guardian'] as $r): ?>
-                                <?php $g1RelationshipSelected = normalizeGuardianRelationship($g1['Relationship'] ?? '') === $r; ?>
+                                <?php $g1RelationshipSelected = normalizeGuardianRelationship($guardianRaw('g1_', $g1, 'Relationship')) === $r; ?>
                                 <option value="<?= $r ?>" <?= $g1RelationshipSelected ? 'selected' : '' ?>><?= $r ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Last Name *</label>
-                        <input type="text" name="g1_last_name" value="<?= $gv($g1, 'LastName') ?>" placeholder="e.g. Dela Cruz" required>
+                        <input type="text" name="g1_last_name" value="<?= $gv('g1_', $g1, 'LastName') ?>" placeholder="e.g. Dela Cruz" required>
                     </div>
                     <div class="form-group">
                         <label>First Name *</label>
-                        <input type="text" name="g1_first_name" value="<?= $gv($g1, 'FirstName') ?>" placeholder="e.g. Maria" required>
+                        <input type="text" name="g1_first_name" value="<?= $gv('g1_', $g1, 'FirstName') ?>" placeholder="e.g. Maria" required>
                     </div>
                     <div class="form-group">
                         <label>Middle Name</label>
-                        <input type="text" name="g1_middle_name" value="<?= $gv($g1, 'MiddleName') ?>" placeholder="e.g. S.">
+                        <input type="text" name="g1_middle_name" value="<?= $gv('g1_', $g1, 'MiddleName') ?>" placeholder="e.g. S.">
                     </div>
                     <div class="form-group">
                         <label>Office Phone</label>
-                        <input type="text" name="g1_office_phone" value="<?= $gv($g1, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
+                        <input type="text" name="g1_office_phone" value="<?= $gv('g1_', $g1, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number *</label>
-                        <input type="text" name="g1_mobile" value="<?= $gv($g1, 'MobileNumber') ?>" placeholder="09XXXXXXXXX" class="phone-input" required>
+                        <input type="text" name="g1_mobile" value="<?= htmlspecialchars(mobileInputValue($guardianRaw('g1_', $g1, 'MobileNumber'))) ?>" class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX" required>
                     </div>
                     <div class="form-group">
                         <label>Email Address</label>
-                        <input type="email" name="g1_email" value="<?= $gv($g1, 'EmailAddress') ?>" placeholder="someone@gmail.com">
+                        <input type="email" name="g1_email" value="<?= $gv('g1_', $g1, 'EmailAddress') ?>" placeholder="someone@gmail.com">
                     </div>
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g1_emergency_name" value="<?= $gv($g1, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
+                        <input type="text" name="g1_emergency_name" value="<?= $gv('g1_', $g1, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g1_emergency_mobile" value="<?= $gv($g1, 'EmergencyContactMobile') ?>" placeholder="09XXXXXXXXX" class="phone-input">
+                        <input type="text" name="g1_emergency_mobile" value="<?= htmlspecialchars(mobileInputValue($guardianRaw('g1_', $g1, 'EmergencyContactMobile'))) ?>" class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX">
                     </div>
                 </div>
 
@@ -425,43 +545,43 @@ $studentContentClass = 'clinic-wizard-content';
                         <select name="g2_relationship">
                             <option value="">Select role</option>
                             <?php foreach (['Mother','Father','Guardian'] as $r): ?>
-                                <?php $g2RelationshipSelected = normalizeGuardianRelationship($g2['Relationship'] ?? '') === $r; ?>
+                                <?php $g2RelationshipSelected = normalizeGuardianRelationship($guardianRaw('g2_', $g2, 'Relationship')) === $r; ?>
                                 <option value="<?= $r ?>" <?= $g2RelationshipSelected ? 'selected' : '' ?>><?= $r ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
                         <label>Last Name</label>
-                        <input type="text" name="g2_last_name" value="<?= $gv($g2, 'LastName') ?>" placeholder="e.g. Dela Cruz">
+                        <input type="text" name="g2_last_name" value="<?= $gv('g2_', $g2, 'LastName') ?>" placeholder="e.g. Dela Cruz">
                     </div>
                     <div class="form-group">
                         <label>First Name</label>
-                        <input type="text" name="g2_first_name" value="<?= $gv($g2, 'FirstName') ?>" placeholder="e.g. Maria">
+                        <input type="text" name="g2_first_name" value="<?= $gv('g2_', $g2, 'FirstName') ?>" placeholder="e.g. Maria">
                     </div>
                     <div class="form-group">
                         <label>Middle Name</label>
-                        <input type="text" name="g2_middle_name" value="<?= $gv($g2, 'MiddleName') ?>" placeholder="e.g. S.">
+                        <input type="text" name="g2_middle_name" value="<?= $gv('g2_', $g2, 'MiddleName') ?>" placeholder="e.g. S.">
                     </div>
                     <div class="form-group">
                         <label>Office Phone</label>
-                        <input type="text" name="g2_office_phone" value="<?= $gv($g2, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
+                        <input type="text" name="g2_office_phone" value="<?= $gv('g2_', $g2, 'OfficePhone') ?>" placeholder="09XXXXXXXXX" class="phone-input">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g2_mobile" value="<?= $gv($g2, 'MobileNumber') ?>" placeholder="09XXXXXXXXX" class="phone-input">
+                        <input type="text" name="g2_mobile" value="<?= htmlspecialchars(mobileInputValue($guardianRaw('g2_', $g2, 'MobileNumber'))) ?>" class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX">
                     </div>
                     <div class="form-group">
                         <label>Email Address</label>
-                        <input type="email" name="g2_email" value="<?= $gv($g2, 'EmailAddress') ?>" placeholder="someone@gmail.com">
+                        <input type="email" name="g2_email" value="<?= $gv('g2_', $g2, 'EmailAddress') ?>" placeholder="someone@gmail.com">
                     </div>
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g2_emergency_name" value="<?= $gv($g2, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
+                        <input type="text" name="g2_emergency_name" value="<?= $gv('g2_', $g2, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
-                        <input type="text" name="g2_emergency_mobile" value="<?= $gv($g2, 'EmergencyContactMobile') ?>" placeholder="09XXXXXXXXX" class="phone-input">
+                        <input type="text" name="g2_emergency_mobile" value="<?= htmlspecialchars(mobileInputValue($guardianRaw('g2_', $g2, 'EmergencyContactMobile'))) ?>" class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX">
                     </div>
                 </div>
             </div>
@@ -567,6 +687,7 @@ $studentContentClass = 'clinic-wizard-content';
         </section>
 
         <section class="card form-section clinic-wizard-step clinic-wizard-consent" data-wizard-step="4" hidden>
+            <p class="paper-form-code">FCAT School Clinic Form 02</p>
             <h2>Consent Form</h2>
             <div class="clinic-consent-grid clinic-consent-preview" aria-label="Consent form preview">
                 <div class="clinic-consent-column">
@@ -584,13 +705,33 @@ $studentContentClass = 'clinic-wizard-content';
                     <p class="clinic-consent-display-check">☐ Other: ______________________________</p>
                 </div>
             </div>
+
+            <div class="privacy-consent-box">
+                <div class="privacy-consent-heading">
+                    <span aria-hidden="true"><?= studentDashboardIcon('shield') ?></span>
+                    <h3>Data Privacy Notice</h3>
+                </div>
+                <p>
+                    In compliance with the <strong>Data Privacy Act of 2012 (Republic Act No. 10173)</strong>, its Implementing Rules and Regulations,
+                    and issuances of the National Privacy Commission, the FCAT School Clinic collects the personal and health information in this form
+                    (student details, parent/guardian and emergency contacts, medical history, medications, and allergies) solely to provide clinic care,
+                    respond to emergencies, and keep your school health record. Your information is accessible only to authorized clinic personnel,
+                    is kept secure, and will not be shared with third parties without your consent unless required by law. You may access, correct,
+                    or request the removal of your information through the clinic.
+                </p>
+                <label class="privacy-consent-check">
+                    <input type="checkbox" name="privacy_consent" value="1" required data-privacy-consent>
+                    <span>I have read and understood the Data Privacy Notice, and I <strong>agree to the collection and processing of my personal and health information</strong> by the FCAT School Clinic in accordance with the Data Privacy Act of 2012 (RA 10173).</span>
+                </label>
+            </div>
+
             <div class="clinic-wizard-actions clinic-wizard-actions-final">
                 <button type="button" class="btn clinic-wizard-action clinic-wizard-action-back" data-wizard-back>
                     <?= studentDashboardIcon('chevron-left') ?><span>Back</span>
                 </button>
                 <div class="clinic-wizard-final-actions">
                     <a href="download-consent-form.php" class="btn clinic-wizard-action clinic-wizard-action-download clinic-consent-download">Download form</a>
-                    <button type="submit" class="btn clinic-wizard-action clinic-wizard-action-save">Save clinic form</button>
+                    <button type="submit" class="btn clinic-wizard-action clinic-wizard-action-save" data-privacy-consent-submit>Save clinic form</button>
                 </div>
             </div>
         </section>
@@ -598,6 +739,6 @@ $studentContentClass = 'clinic-wizard-content';
         </form>
     </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
-    <script src="../public/assets/js/main.js"></script>
+    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

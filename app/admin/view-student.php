@@ -16,14 +16,7 @@ foreach ($medHistory as $row) {
     $medMap[$row['Illness']] = $row;
 }
 
-$illnesses = [
-    'Asthma', 'Chicken Pox', 'Chronic Ear Infections or Otitis Media',
-    'Diabetes', 'Epilepsy', 'Fainting Spells', 'Febrile Convulsions',
-    'Heart Disorder', 'Hepatitis A', 'Hepatitis B',
-    'Measles', 'Meningitis', 'Mumps', 'Primary Complex',
-    'Rubella', 'Scoliosis', 'Skin Problems',
-    'Urinary Tract Infections', 'Whooping Cough', 'Others',
-];
+$illnesses = clinicIllnessList();
 
 $adminPageTitle = 'Student Record';
 $adminContentClass = 'patient-records-content';
@@ -36,21 +29,32 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>View Student</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../includes/admin-dashboard-start.php'; ?>
     <div class="patient-records-page">
         <div class="patient-records-actions">
-            <h1>FCAT School Clinic Form 01</h1>
+            <div>
+                <h1><?= htmlspecialchars(trim(($student['FirstName'] ?? '') . ' ' . ($student['LastName'] ?? ''))) ?></h1>
+                <p class="privacy-consent-status">
+                    <?php if (!empty($student['PrivacyConsentAt'])): ?>
+                        <?= studentDashboardIcon('shield') ?> Data privacy consent given <?= date('M d, Y g:i A', strtotime($student['PrivacyConsentAt'])) ?>
+                    <?php else: ?>
+                        <?= studentDashboardIcon('warning') ?> Clinic form not yet completed with data privacy consent
+                    <?php endif; ?>
+                </p>
+            </div>
             <div>
                 <a href="edit-student.php?id=<?= (int) $student['StudentID'] ?>" class="btn btn-success paper-download-btn">Edit Student</a>
+                <a href="audit-log.php?account=student:<?= (int) $student['StudentID'] ?>" class="btn btn-secondary paper-download-btn">View audit log</a>
                 <a href="students.php" class="btn btn-secondary paper-download-btn">Back to List</a>
             </div>
         </div>
 
         <section class="clinic-paper-form">
+            <p class="paper-form-code">FCAT School Clinic Form 01</p>
             <div class="paper-section">
                 <h2>Student Information</h2>
                 <table class="paper-table">
@@ -111,9 +115,11 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
                 </table>
             </div>
         </section>
+        <a href="download-student-form.php?id=<?= (int) $student['StudentID'] ?>&amp;form=clinic" class="btn btn-success paper-download-btn">Download PDF</a>
 
         <section class="consent-paper-form">
             <div class="consent-paper-inner">
+                <p class="paper-form-code">FCAT School Clinic Form 02</p>
                 <h2>CONSENT FORM</h2>
                 <p>I give consent for my child to receive the following:</p>
                 <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks(null) ?></span></div>
@@ -131,6 +137,7 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
                 </div>
             </div>
         </section>
+        <a href="download-student-form.php?id=<?= (int) $student['StudentID'] ?>&amp;form=consent" class="btn btn-success paper-download-btn">Download PDF</a>
 
         <section class="consent-upload-section">
             <h2>Parent/Guardian's ID</h2>
@@ -159,7 +166,8 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
                     <?php foreach ($clinicVisits as $visit): ?>
                         <article class="clinic-visit-card">
                             <div>
-                                <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
+                                <h3><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?></h3>
+                                <?= visitTimesHtml($visit) ?>
                                 <p><?= htmlspecialchars($visit['Complaint']) ?></p>
                                 <?php if (!empty($visit['Treatment'])): ?>
                                     <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
@@ -184,6 +192,6 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
         </section>
     </div>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

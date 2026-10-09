@@ -10,6 +10,9 @@ public/uploads/*
 !public/uploads/profiles/
 public/uploads/profiles/*
 !public/uploads/profiles/.gitkeep
+!public/uploads/consent/
+public/uploads/consent/*
+!public/uploads/consent/.htaccess
 *.log
 *.log.*
 logs/

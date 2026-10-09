@@ -15,11 +15,10 @@ document.addEventListener('DOMContentLoaded', function () {
     initStudentNotificationPreference();
     initBirthDatePicker();
     initPastDateInputs();
-    initFollowUpDatePicker();
     initClinicFormWizard();
     initMedicineCarousel();
     initReportDialogs();
-    initReportPrint();
+    initMedicineDuplicateCheck();
     initDashboardMobileNav();
     initNotificationMenu();
 });
@@ -252,15 +251,28 @@ function initCheckInMedicineFields() {
         quantity.disabled = !hasMedicine;
         quantity.required = hasMedicine;
 
-        if (hasMedicine) {
-            quantity.max = String(Math.max(0, availableStock));
-            quantity.placeholder = availableStock + ' available';
-        } else {
-            quantity.max = '999999';
-            quantity.placeholder = 'Select medicine first';
-        }
+        quantity.dataset.availableStock = hasMedicine ? String(Math.max(0, availableStock)) : '';
+        quantity.placeholder = hasMedicine ? availableStock + ' available' : 'Select medicine first';
+        validateQuantity();
     }
 
+    // Whole units only, from 1 up to the selected medicine's available stock.
+    function validateQuantity() {
+        var available = Number(quantity.dataset.availableStock || 0);
+        quantity.value = quantity.value.replace(/\D/g, '').slice(0, 6);
+        var value = quantity.value;
+        var message = '';
+        if (!quantity.disabled && value !== '') {
+            if (!/^[0-9]+$/.test(value) || Number(value) < 1) {
+                message = 'Enter a whole number of units (1 or more).';
+            } else if (available > 0 && Number(value) > available) {
+                message = 'Only ' + available + ' unit(s) are available.';
+            }
+        }
+        quantity.setCustomValidity(message);
+    }
+
+    quantity.addEventListener('input', validateQuantity);
     medicine.addEventListener('change', function () {
         syncMedicineFields(true);
     });
@@ -372,6 +384,8 @@ function initDeleteModal() {
             activeTrigger = document.activeElement;
             title.textContent = this.dataset.deleteTitle || 'Confirm delete';
             message.textContent = this.dataset.deleteMessage || 'Are you sure? This action cannot be undone.';
+            confirmBtn.textContent = this.dataset.confirmLabel || 'Delete';
+            confirmBtn.className = 'btn ' + (this.dataset.confirmClass || 'btn-danger');
             overlay.classList.add('active');
             overlay.setAttribute('aria-hidden', 'false');
             confirmBtn.focus();
@@ -608,10 +622,29 @@ function initInputRestrictions() {
         });
     });
 
+    // Digits only, capped at the field's maxlength (illness ages use 3, stock quantities use 6).
     document.querySelectorAll('.integer-input').forEach(function (input) {
         input.addEventListener('input', function () {
-            this.value = this.value.replace(/\D/g, '').slice(0, 3);
+            var limit = this.maxLength > 0 ? this.maxLength : 6;
+            this.value = this.value.replace(/\D/g, '').slice(0, limit);
         });
+    });
+
+    // Philippine mobile numbers: digits only, exactly 11, starting with 09.
+    document.querySelectorAll('.mobile-input').forEach(function (input) {
+        function validate() {
+            var value = input.value;
+            input.setCustomValidity(
+                value === '' || /^09\d{9}$/.test(value)
+                    ? ''
+                    : 'Enter an 11-digit mobile number starting with 09 (e.g. 09171234567).'
+            );
+        }
+        input.addEventListener('input', function () {
+            this.value = this.value.replace(/\D/g, '').slice(0, 11);
+            validate();
+        });
+        validate();
     });
 }
 
@@ -1027,221 +1060,6 @@ function initPastDateInputs() {
     });
 }
 
-function initFollowUpDatePicker() {
-    document.querySelectorAll('[data-follow-up-date-picker]').forEach(function (picker) {
-        var input = picker.querySelector('input[name="follow_up_date"]');
-        var trigger = picker.querySelector('.follow-up-date-trigger');
-        var display = picker.querySelector('#follow-up-date-display');
-        var calendar = picker.querySelector('.follow-up-calendar');
-        var monthLabel = picker.querySelector('#follow-up-calendar-month');
-        var grid = picker.querySelector('.follow-up-calendar-grid');
-        var previousButton = picker.querySelector('[data-follow-up-previous]');
-        var nextButton = picker.querySelector('[data-follow-up-next]');
-        var clearButton = picker.querySelector('[data-follow-up-clear]');
-        var label = document.getElementById('follow-up-date-label');
-
-        if (!input || !trigger || !display || !calendar || !monthLabel || !grid || !previousButton || !nextButton || !clearButton) {
-            return;
-        }
-
-        function parseDate(value) {
-            var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
-            if (!match) return null;
-
-            var year = Number(match[1]);
-            var month = Number(match[2]) - 1;
-            var day = Number(match[3]);
-            var date = new Date(year, month, day, 12, 0, 0, 0);
-
-            return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
-                ? date
-                : null;
-        }
-
-        function isoDate(date) {
-            return date.getFullYear() + '-' +
-                String(date.getMonth() + 1).padStart(2, '0') + '-' +
-                String(date.getDate()).padStart(2, '0');
-        }
-
-        function startOfMonth(date) {
-            return new Date(date.getFullYear(), date.getMonth(), 1, 12, 0, 0, 0);
-        }
-
-        function monthIndex(date) {
-            return date.getFullYear() * 12 + date.getMonth();
-        }
-
-        function isSameDate(first, second) {
-            return Boolean(first && second && isoDate(first) === isoDate(second));
-        }
-
-        function formatDate(date) {
-            return date.toLocaleDateString(undefined, {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-            });
-        }
-
-        var minimumDate = parseDate(picker.dataset.minDate);
-        var maximumDate = parseDate(picker.dataset.maxDate);
-        if (!minimumDate || !maximumDate) return;
-
-        var minimumMonth = startOfMonth(minimumDate);
-        var maximumMonth = startOfMonth(maximumDate);
-        var selectedDate = parseDate(input.value);
-
-        function isAllowed(date) {
-            return date >= minimumDate && date <= maximumDate;
-        }
-
-        if (selectedDate && !isAllowed(selectedDate)) {
-            selectedDate = null;
-            input.value = '';
-        }
-
-        var visibleMonth = startOfMonth(selectedDate || minimumDate);
-
-        function updateTrigger() {
-            display.textContent = selectedDate ? formatDate(selectedDate) : 'Select a date';
-            trigger.classList.toggle('has-value', Boolean(selectedDate));
-        }
-
-        function emptyCell() {
-            var cell = document.createElement('span');
-            cell.className = 'follow-up-calendar-empty';
-            cell.setAttribute('aria-hidden', 'true');
-            return cell;
-        }
-
-        function renderCalendar() {
-            grid.replaceChildren();
-            monthLabel.textContent = visibleMonth.toLocaleDateString(undefined, {
-                month: 'long',
-                year: 'numeric'
-            });
-
-            previousButton.disabled = monthIndex(visibleMonth) <= monthIndex(minimumMonth);
-            nextButton.disabled = monthIndex(visibleMonth) >= monthIndex(maximumMonth);
-
-            var leadingCells = visibleMonth.getDay();
-            var daysInMonth = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate();
-
-            for (var leading = 0; leading < leadingCells; leading++) {
-                grid.appendChild(emptyCell());
-            }
-
-            for (var day = 1; day <= daysInMonth; day++) {
-                var date = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), day, 12, 0, 0, 0);
-
-                if (!isAllowed(date)) {
-                    var unavailable = document.createElement('span');
-                    unavailable.className = 'follow-up-calendar-day is-unavailable';
-                    unavailable.textContent = String(day);
-                    unavailable.setAttribute('aria-hidden', 'true');
-                    grid.appendChild(unavailable);
-                    continue;
-                }
-
-                var dayButton = document.createElement('button');
-                dayButton.type = 'button';
-                dayButton.className = 'follow-up-calendar-day';
-                dayButton.dataset.date = isoDate(date);
-                dayButton.textContent = String(day);
-                dayButton.setAttribute('aria-label', formatDate(date));
-                dayButton.setAttribute('aria-selected', isSameDate(date, selectedDate) ? 'true' : 'false');
-
-                if (isSameDate(date, minimumDate)) {
-                    dayButton.classList.add('is-today');
-                    dayButton.setAttribute('aria-current', 'date');
-                }
-                if (isSameDate(date, selectedDate)) {
-                    dayButton.classList.add('is-selected');
-                }
-
-                grid.appendChild(dayButton);
-            }
-
-            while (grid.children.length < 42) {
-                grid.appendChild(emptyCell());
-            }
-        }
-
-        function setOpen(isOpen) {
-            calendar.hidden = !isOpen;
-            trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-            if (isOpen) renderCalendar();
-        }
-
-        function changeMonth(offset) {
-            var candidate = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1, 12, 0, 0, 0);
-            if (monthIndex(candidate) < monthIndex(minimumMonth) || monthIndex(candidate) > monthIndex(maximumMonth)) {
-                return;
-            }
-
-            visibleMonth = candidate;
-            renderCalendar();
-        }
-
-        input.hidden = true;
-        trigger.hidden = false;
-        updateTrigger();
-
-        trigger.addEventListener('click', function () {
-            setOpen(calendar.hidden);
-        });
-
-        previousButton.addEventListener('click', function () {
-            changeMonth(-1);
-        });
-
-        nextButton.addEventListener('click', function () {
-            changeMonth(1);
-        });
-
-        grid.addEventListener('click', function (event) {
-            var button = event.target.closest('button[data-date]');
-            if (!button) return;
-
-            selectedDate = parseDate(button.dataset.date);
-            input.value = button.dataset.date;
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            updateTrigger();
-            setOpen(false);
-            trigger.focus();
-        });
-
-        clearButton.addEventListener('click', function () {
-            selectedDate = null;
-            input.value = '';
-            updateTrigger();
-            setOpen(false);
-            trigger.focus();
-        });
-
-        if (label) {
-            label.addEventListener('click', function (event) {
-                event.preventDefault();
-                trigger.focus();
-                setOpen(true);
-            });
-        }
-
-        document.addEventListener('click', function (event) {
-            if (!picker.contains(event.target)) setOpen(false);
-        });
-
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && !calendar.hidden) {
-                setOpen(false);
-                trigger.focus();
-            }
-        });
-    });
-}
-
 function initClinicFormWizard() {
     var form = document.querySelector('[data-clinic-wizard]');
     if (!form) return;
@@ -1256,7 +1074,7 @@ function initClinicFormWizard() {
         1: ['Student Information', 'Provide accurate personal and academic information.'],
         2: ['Parent / Guardian Information', 'Add guardian and emergency contact details.'],
         3: ['Past History', 'Record medical history, medicines, and allergies.'],
-        4: ['Consent Form', 'Review the consent document and download a copy.']
+        4: ['Consent Form', 'Review the consent document, agree to the data privacy notice, and save.']
     };
     var currentStep = Math.max(1, Math.min(4, Number(form.dataset.startStep) || 1));
     var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1331,6 +1149,17 @@ function initClinicFormWizard() {
             }
         }
     });
+
+    var privacyConsent = form.querySelector('[data-privacy-consent]');
+    var privacySubmit = form.querySelector('[data-privacy-consent-submit]');
+    if (privacyConsent && privacySubmit) {
+        var syncPrivacyConsent = function () {
+            privacySubmit.disabled = !privacyConsent.checked;
+            privacySubmit.title = privacyConsent.checked ? '' : 'Agree to the Data Privacy Notice to save';
+        };
+        privacyConsent.addEventListener('change', syncPrivacyConsent);
+        syncPrivacyConsent();
+    }
 
     showStep(currentStep, false);
 }
@@ -1527,11 +1356,45 @@ function initReportDialogs() {
     });
 }
 
-function initReportPrint() {
-    var printButton = document.querySelector('[data-print-report]');
-    if (!printButton) return;
+function initMedicineDuplicateCheck() {
+    var input = document.querySelector('[data-medicine-name-input]');
+    var message = document.querySelector('[data-medicine-name-duplicate]');
+    if (!input || !message) return;
 
-    printButton.addEventListener('click', function () {
-        window.print();
-    });
+    var submitButton = input.form ? input.form.querySelector('button[type="submit"]') : null;
+    var existing = [];
+    try {
+        existing = JSON.parse(input.dataset.existingMedicines || '[]');
+    } catch (error) {
+        existing = [];
+    }
+
+    // Matches the server rule: spacing and letter case are ignored.
+    function nameKey(value) {
+        return value.replace(/\s+/g, '').toLowerCase();
+    }
+
+    function checkName() {
+        var key = nameKey(input.value);
+        var match = key === '' ? null : existing.find(function (medicine) {
+            return nameKey(medicine.name) === key;
+        });
+
+        if (match) {
+            message.textContent = match.archived
+                ? match.name + ' already exists in Archived medicines. Restore it instead.'
+                : match.name + ' already exists in the inventory. Use Add stock instead.';
+            message.hidden = false;
+            input.setAttribute('aria-invalid', 'true');
+        } else {
+            message.textContent = '';
+            message.hidden = true;
+            input.removeAttribute('aria-invalid');
+        }
+
+        if (submitButton) submitButton.disabled = Boolean(match);
+    }
+
+    input.addEventListener('input', checkName);
+    checkName();
 }

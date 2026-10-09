@@ -12,6 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 
     if (ctype_digit((string) $studentIdForStatus) && in_array($status, ['open', 'resolved'], true)) {
         updateChatConversationStatus($pdo, (int) $studentIdForStatus, $status, (int) $_SESSION['user_id']);
+        auditLog(
+            $pdo,
+            'messages',
+            'chat.status_changed',
+            $status === 'resolved' ? 'Marked the clinic conversation as resolved.' : 'Reopened the clinic conversation.',
+            ['subject_role' => 'student', 'subject_id' => (int) $studentIdForStatus]
+        );
     }
 
     header('Location: messages.php?student_id=' . urlencode((string) $studentIdForStatus));
@@ -57,7 +64,7 @@ $adminBreadcrumbTrail = ['Messages'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messages</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page student-messages-body admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -187,7 +194,7 @@ $adminBreadcrumbTrail = ['Messages'];
         </div>
         </div>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
     <script src="../../public/assets/js/chat.js"></script>
 </body>
 </html>

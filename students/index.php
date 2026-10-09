@@ -18,7 +18,7 @@ $estimatedWait = $queueWaiting > 0
     ? (($queueWaiting * 4) + 10) . '-' . (($queueWaiting * 5) + 10) . ' minutes'
     : 'No wait';
 
-$totalVisits = count($medHistory);
+$totalVisits = countClinicVisits($pdo, $studentId);
 $lastVisit = !empty($student['CreatedAt']) ? date('F j, Y', strtotime($student['CreatedAt'])) : 'No record';
 $lastVisit = $latestVisit ? date('F j, Y', strtotime($latestVisit['CreatedAt'])) : $lastVisit;
 $lastIssue = $medHistory[0]['Illness'] ?? 'No record';
@@ -39,7 +39,7 @@ $studentPageTitle = 'Dashboard';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page dashboard-home-body antialiased selection:bg-green-200 selection:text-green-950">
@@ -132,6 +132,6 @@ $studentPageTitle = 'Dashboard';
             </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
 
-    <script src="../public/assets/js/main.js"></script>
+    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

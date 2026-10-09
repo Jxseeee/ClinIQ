@@ -39,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $activeTab = 'profile';
         try {
             storeProfileImage($pdo, 'student', $studentId, $_FILES['profile_image'] ?? []);
+            auditLog($pdo, 'account', 'account.photo_updated', 'Updated profile photo.');
             header('Location: change-password.php?tab=profile&success=photo');
             exit;
         } catch (InvalidArgumentException | RuntimeException $error) {
@@ -48,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $activeTab = 'profile';
         try {
             removeProfileImage($pdo, 'student', $studentId);
+            auditLog($pdo, 'account', 'account.photo_removed', 'Removed profile photo.');
             header('Location: change-password.php?tab=profile&success=photo_removed');
             exit;
         } catch (RuntimeException $error) {
@@ -56,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'update_account') {
         $activeTab = 'account';
         $email = trim((string) ($_POST['email'] ?? ''));
-        $phone = trim((string) ($_POST['phone'] ?? ''));
+        $phone = validateMobileNumber((string) ($_POST['phone'] ?? ''), 'Mobile number', $accountErrors);
         $address = trim((string) ($_POST['address'] ?? ''));
 
         if ($email === '') {
@@ -64,12 +66,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             validateEmail($email, $accountErrors);
         }
-        if (mb_strlen($phone) > 20) {
-            $accountErrors[] = 'Mobile number is too long.';
+        // The street address is part of the required clinic form, so it can't be cleared here.
+        if ($address === '') {
+            $accountErrors[] = 'Address is required because it is part of your clinic form.';
         }
-        if (mb_strlen($address) > 255) {
-            $accountErrors[] = 'Address is too long.';
-        }
+        validateMaxLengths(
+            ['email' => $email, 'address' => $address],
+            ['email' => ['Email address', 100], 'address' => ['Address', 255]],
+            $accountErrors
+        );
 
         if (!$accountErrors) {
             $duplicate = $pdo->prepare("SELECT COUNT(*) FROM Students WHERE Email = ? AND StudentID <> ?");
@@ -80,10 +85,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!$accountErrors) {
-            $update = $pdo->prepare("UPDATE Students SET Email = ?, Phone = ?, StreetAddress = ? WHERE StudentID = ?");
-            $update->execute([$email, $phone !== '' ? $phone : null, $address !== '' ? $address : null, $studentId]);
-            header('Location: change-password.php?tab=account&success=account');
-            exit;
+            try {
+                $update = $pdo->prepare("UPDATE Students SET Email = ?, Phone = ?, StreetAddress = ? WHERE StudentID = ?");
+                $update->execute([$email, $phone !== '' ? $phone : null, $address, $studentId]);
+                $changedFields = auditChangedFields(
+                    $settingsStudent,
+                    ['Email' => $email, 'Phone' => $phone, 'StreetAddress' => $address],
+                    ['Email' => 'email', 'Phone' => 'mobile number', 'StreetAddress' => 'address']
+                );
+                if ($changedFields) {
+                    auditLog($pdo, 'account', 'account.details_updated', 'Updated account details: ' . implode(', ', $changedFields) . '.');
+                }
+                header('Location: change-password.php?tab=account&success=account');
+                exit;
+            } catch (PDOException $error) {
+                error_log('Student account update failed: ' . $error->getMessage());
+                $accountErrors[] = 'Your account details could not be saved. Please try again.';
+            }
         }
 
         $settingsStudent['Email'] = $email;
@@ -98,17 +116,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!password_verify($oldPass, (string) $settingsStudent['Password'])) {
             $passwordErrors[] = 'Current password is incorrect.';
         }
-        if (strlen($newPass) < 8) {
-            $passwordErrors[] = 'New password must be at least 8 characters.';
-        }
-        if (!preg_match('/\d/', $newPass)) {
-            $passwordErrors[] = 'New password must contain at least one number.';
-        }
-        if (!preg_match('/[^A-Za-z0-9]/', $newPass)) {
-            $passwordErrors[] = 'New password must contain at least one special character.';
-        }
+        validateNewPassword($newPass, $passwordErrors);
         if ($newPass === DEFAULT_STUDENT_PASSWORD) {
             $passwordErrors[] = 'Please choose a new password different from the default password.';
+        } elseif ($newPass !== '' && $newPass === $oldPass) {
+            $passwordErrors[] = 'Please choose a new password different from your current password.';
         }
         if ($newPass !== $confirm) {
             $passwordErrors[] = 'New passwords do not match.';
@@ -118,6 +130,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $update = $pdo->prepare("UPDATE Students SET Password = ?, MustChangePassword = 0 WHERE StudentID = ?");
             $update->execute([password_hash($newPass, PASSWORD_DEFAULT), $studentId]);
             $_SESSION['must_change_password'] = false;
+            session_regenerate_id(true);
+            auditLog(
+                $pdo,
+                'security',
+                'account.password_changed',
+                $forceChange ? 'Replaced the temporary password on sign-in.' : 'Changed account password.'
+            );
             header($forceChange
                 ? 'Location: profile.php?password_changed=1'
                 : 'Location: change-password.php?tab=account&success=password');
@@ -131,6 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $enabled = (int) ($_POST['notifications_enabled'] ?? 0) === 1 ? 1 : 0;
             $update = $pdo->prepare("UPDATE Students SET NotificationsEnabled = ? WHERE StudentID = ?");
             $update->execute([$enabled, $studentId]);
+            if ($enabled !== (int) ($settingsStudent['NotificationsEnabled'] ?? 1)) {
+                auditLog($pdo, 'account', 'account.notifications_updated', $enabled ? 'Turned notifications on.' : 'Turned notifications off.');
+            }
             if ($enabled === 0 && databaseTableExists($pdo, 'Notifications')) {
                 $clear = $pdo->prepare(
                     "UPDATE Notifications SET IsRead = 1
@@ -169,7 +191,7 @@ $successMessage = $successMessages[(string) ($_GET['success'] ?? '')] ?? '';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page student-settings-page <?= $activeTab !== 'account' ? 'student-settings-static-view' : '' ?> antialiased selection:bg-green-200 selection:text-green-950">
@@ -271,9 +293,9 @@ $successMessage = $successMessages[(string) ($_GET['success'] ?? '')] ?? '';
                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                             <input type="hidden" name="action" value="update_account">
                             <div class="student-settings-form-grid">
-                                <label for="settings_email"><span>Email Address</span><input type="email" id="settings_email" name="email" value="<?= htmlspecialchars($settingsStudent['Email'] ?? '') ?>" pattern="^[^\s@]+@fcat\.com\.ph$" title="Use your @fcat.com.ph email address." required></label>
-                                <label for="settings_phone"><span>Mobile Number</span><input type="tel" id="settings_phone" name="phone" value="<?= htmlspecialchars($settingsStudent['Phone'] ?? '') ?>" maxlength="20"></label>
-                                <label for="settings_address" class="is-wide"><span>Address</span><input type="text" id="settings_address" name="address" value="<?= htmlspecialchars($settingsStudent['StreetAddress'] ?? '') ?>" maxlength="255"></label>
+                                <label for="settings_email"><span>Email Address</span><input type="email" id="settings_email" name="email" value="<?= htmlspecialchars($settingsStudent['Email'] ?? '') ?>" pattern="^[^\s@]+@fcat\.com\.ph$" title="Use your @fcat.com.ph email address." maxlength="100" required></label>
+                                <label for="settings_phone"><span>Mobile Number</span><input type="text" id="settings_phone" name="phone" value="<?= htmlspecialchars(mobileInputValue($settingsStudent['Phone'] ?? '')) ?>" class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX"></label>
+                                <label for="settings_address" class="is-wide"><span>Address</span><input type="text" id="settings_address" name="address" value="<?= htmlspecialchars($settingsStudent['StreetAddress'] ?? '') ?>" maxlength="255" required></label>
                             </div>
                             <div class="student-settings-actions"><button type="submit" class="btn btn-success">Save Changes</button><a href="change-password.php?tab=profile" class="btn btn-secondary">Cancel</a></div>
                         </form>
@@ -320,6 +342,6 @@ $successMessage = $successMessages[(string) ($_GET['success'] ?? '')] ?? '';
         </div>
     </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
-    <script src="../public/assets/js/main.js"></script>
+    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

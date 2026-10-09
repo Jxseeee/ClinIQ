@@ -1,6 +1,6 @@
 # Student Management System
 
-A PHP CRUD application with role-based authentication. Admins manage students and post announcements. Students view announcements, fill out clinic forms, manage their own profile, and chat with admins in real time via Pusher.
+A PHP CRUD application with role-based authentication. Admins manage students and post announcements (announcements can be created or deleted, not edited). Students view announcements, fill out clinic forms, manage their own profile, and chat with admins in real time via Pusher.
 
 ## Requirements
 
@@ -70,11 +70,13 @@ If you already have the database and need persisted clinic consent choices, run:
 mysql -u root -p < database/migrations/add_clinic_consent_choices.sql
 ```
 
-If you already have the database and need live clinic occupancy counts, run:
+If you already have the database and want each admin to have their own read/unread notification state, run:
 
 ```bash
-mysql -u root -p < database/migrations/add_clinic_occupancy.sql
+mysql -u root -p < database/migrations/add_admin_notification_reads.sql
 ```
+
+(`add_clinic_occupancy.sql` is no longer needed — nurse and clinic occupancy counts are calculated live.)
 
 If you already have `ClinicVisits` and need centralized student/staff check-in, run:
 
@@ -98,6 +100,24 @@ If you already have the database and need medicine inventory reports, run:
 
 ```bash
 mysql -u root -p < database/migrations/add_medicine_inventory.sql
+```
+
+If you already have the `Medicines` table and need medicine archiving, run:
+
+```bash
+mysql -u root -p < database/migrations/add_medicine_archive.sql
+```
+
+If you already have the database and need the required clinic form with Data Privacy Act consent, run:
+
+```bash
+mysql -u root -p < database/migrations/add_privacy_consent.sql
+```
+
+If you already have the database and need the audit log, run:
+
+```bash
+mysql -u root -p < database/migrations/add_audit_logs.sql
 ```
 
 If you already have `ClinicVisits` and need a separate medicine-given field, run:
@@ -132,6 +152,47 @@ Chat still works without Pusher (messages are saved to MySQL), but the other par
 http://localhost/ClinIQ/public/login.php
 ```
 
+## Deployment Security (Ubuntu)
+
+The whole project sits inside the web root, so private files must be blocked from download. The root `.htaccess` blocks dotfiles (`.env`, `.git`), `*.sql`, Composer files, docs, `vendor/`, `database/`, `app/config/`, `app/includes/`, and folder listings. `public/uploads/consent/.htaccess` blocks direct access to guardian ID images.
+
+Built-in protections:
+
+- Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, and PHP strict session mode is on
+- Sign-in is refused for 15 minutes after 5 failed attempts on one account from the same IP address, 10 on one account from anywhere, or 30 from one IP address overall (counted from the audit log; the per-IP limit is high because campus networks share IP addresses)
+- PHP errors are hidden from visitors unless `APP_DEBUG=true` in `.env` (they are still written to the PHP error log)
+- Admin password resets must be changed by the student at their next sign-in; changing a password issues a new session ID
+- Logout links carry the CSRF token; deleting a student also deletes their guardian ID image and profile photo
+
+**Apache:** Ubuntu ignores `.htaccess` files by default. Allow them for the project folder in your site config (for example `/etc/apache2/sites-available/000-default.conf`):
+
+```apache
+<Directory /var/www/html/ClinIQ>
+    AllowOverride All
+</Directory>
+```
+
+Then reload Apache: `sudo systemctl reload apache2`.
+
+**Nginx:** `.htaccess` files are never read. Add these rules to the `server { }` block instead:
+
+```nginx
+location ~ /\.                       { deny all; }
+location ~* \.(sql|md|lock|log|bak|ini|sh)$ { deny all; }
+location ~ /(composer|skills-lock)\.json$ { deny all; }
+location ~ ^/ClinIQ/(vendor|database|app/config|app/includes|public/uploads/consent)(/|$) { deny all; }
+autoindex off;
+```
+
+**Check after deploying** (each should print `403` or `404`):
+
+```bash
+for p in .env .git/HEAD database/Clinic.sql vendor/autoload.php app/config/database.php; do
+  curl -s -o /dev/null -w "$p %{http_code}
+" http://your-server/ClinIQ/$p
+done
+```
+
 ## Default Accounts
 
 | Role    | Username / Student ID | Password    |
@@ -153,12 +214,17 @@ New student accounts are created by admins only. Admin-created students use the 
 ## Patient Records
 
 - `students/profile.php` merges patient records and the clinic form preview
+- The clinic form is required: until a student saves it with Data Privacy Act consent and all required fields (including Guardian 1 name and mobile), every other student page redirects to the form, the chat APIs return 403, and sidebar links appear locked (the consent PDF download stays available). The check runs on every request, and if `Students.PrivacyConsentAt` is missing the app adds the column itself instead of letting students through
+- The final step shows a Data Privacy Notice (RA 10173); the Save button stays disabled until the student ticks the consent checkbox, and the server rejects saves without it. The consent time is stored in `Students.PrivacyConsentAt` and shown on the admin student record
+- Paper forms and PDFs carry their form numbers in the top-left corner: "FCAT School Clinic Form 01" (clinic form) and "FCAT School Clinic Form 02" (consent form)
+- Downloaded PDFs are single A4 pages with the FCAT letterhead (seal, school name, student number), a document title, numbered sections, signature lines, and a footer with the generation time and page numbers. The seal uses `public/assets/images/fcat-clinic-logo-print.jpg` so the PHP GD extension is not required
+- Mobile numbers (guardian, emergency contact, student, and admin-entered student phone) must be exactly 11 digits starting with 09; they are validated in the browser and on the server and stored without dashes
 - Student clinic details are edited through a responsive four-step form covering personal information, guardians, medical history/allergies, and a read-only consent preview
 - Wizard steps are sequential and cannot be opened from the progress indicators; the final step provides a downloadable consent PDF
 - Date of Birth cannot be later than the current Manila date
 - Saved guardian, emergency, medical, allergy, and stored consent details appear in student/admin record views and consent downloads
 - Students can download the clinic form and consent form as PDFs
-- Students can upload a parent/guardian ID image below the consent form
+- Students can upload a parent/guardian ID image below the consent form; images get random filenames and the upload folder blocks direct URL access, so they are only served through the auth-checked view pages
 - The ID image View button appears only after an upload exists
 - Admins can view uploaded parent/guardian ID images from the student record page
 - Admins record clinic visits from the centralized `app/admin/check-in.php` workflow after searching for an existing student or staff account
@@ -167,6 +233,15 @@ New student accounts are created by admins only. Admin-created students use the 
 - Students can view clinic visit history in their patient records
 - Patient and consent records stack into readable mobile layouts without horizontal table scrolling
 - Clinic follow-up dates are limited to today through 30 days ahead
+
+## Audit Log
+
+- Admins (`app/admin/audit-log.php`) and students (`students/audit-log.php`) both have an **Audit Log** tab
+- Every entry records the date and time, who performed it, which account it concerns, a description, and the IP address; names are stored with the entry so history survives account deletion, and entries cannot be edited or deleted from the app
+- Logged events: sign-ins, failed sign-in attempts (recorded against the targeted account), sign-outs, password changes and admin password resets, account detail and profile photo changes, notification preference changes, clinic form completion/updates with Data Privacy Act consent (with which sections changed), guardian ID uploads, clinic/consent PDF downloads, student account creation/updates/deletion, announcements, check-ins and check-outs, medicine inventory changes, nurse changes, and chat resolve/reopen
+- Admins see all activity and can switch the "Show" selector to "My account only" or a specific student's log (deleted students with history stay selectable); the student record page links to that student's log
+- Students see only activity on their own account — the account always comes from the session, so URL parameters can't show another student's log. Actions by clinic staff appear as "FCAT Clinic staff" without the admin's name or IP address, and failed sign-ins on the account are highlighted
+- Admins can download a student's Clinic Form (01) and Consent Form (02) as PDFs from the student record page
 
 ## Account Settings
 
@@ -185,6 +260,8 @@ New student accounts are created by admins only. Admin-created students use the 
 - Admin and student dashboards show nurses currently on duty and people currently in the clinic
 - `app/admin/check-in.php` searches existing students and staff, records their visit, and lists all active clinic check-ins
 - Checking out closes an open visit and immediately removes that person from the active clinic count
+- Check-in and check-out are timestamped automatically; Time in / Time out appear in the student's visit history, the admin Check In visit records, the student record page, and Reports (open visits show "Still in clinic")
+- PHP and MySQL both use `APP_TIMEZONE` from `.env` (default `Asia/Manila`), so timestamps stay correct on servers running in UTC
 - `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls
 - The nurses-on-duty dashboard count is derived from active nurse toggles and cannot be edited manually
 - Clinic occupancy is derived from active check-ins and cannot be edited manually
@@ -193,8 +270,10 @@ New student accounts are created by admins only. Admin-created students use the 
 ## Reports
 
 - `app/admin/reports.php` combines medicine inventory and clinic visit reports
-- Administrators can add medicines or stock in focused pop-up dialogs, delete medicines with confirmation, search inventory, filter low-stock items, filter visit records, and print reports
-- Medicine summaries show total medicine types and items at or below their configured low-stock threshold
+- Administrators can add medicines or stock in focused pop-up dialogs, search inventory, filter low-stock items, and filter visit records
+- Medicines are archived (with confirmation) instead of deleted; archived items are hidden from the inventory, stock dialog, and Check In, and can be restored from the Archived medicines section with one click (then use Add stock to record new quantities)
+- Duplicate medicine names are blocked (ignoring letter case and spacing), both live in the Add medicine dialog and on the server; the message points to Add stock or Restore as appropriate
+- Medicine summaries show total active medicine types and items at or below their configured low-stock threshold
 - The medicine stock overview uses a responsive GSAP carousel with next/previous controls that advances one inventory item at a time
 
 ## Project Structure
@@ -209,12 +288,13 @@ New student accounts are created by admins only. Admin-created students use the 
 │   │   ├── delete-student.php
 │   │   ├── view-consent-image.php
 │   │   ├── reports.php
+│   │   ├── audit-log.php        # Admin audit log (all activity)
+│   │   ├── download-student-form.php # Admin PDF download of a student's forms
 │   │   ├── nurses.php
 │   │   ├── check-in.php
 │   │   ├── change-password.php
 │   │   ├── announcements.php
 │   │   ├── add-announcement.php
-│   │   ├── edit-announcement.php
 │   │   ├── delete-announcement.php
 │   │   └── messages.php        # Admin chat inbox
 │   ├── api/
@@ -238,6 +318,7 @@ New student accounts are created by admins only. Admin-created students use the 
 ├── students/               # Student portal (auth-guarded)
 │   ├── index.php           # Announcements dashboard
 │   ├── messages.php        # Chat with admin
+│   ├── audit-log.php       # Student audit log (own account)
 │   ├── profile.php         # Patient records + clinic/consent forms
 │   ├── edit-profile.php    # Edit clinic form
 │   ├── download-clinic-form.php
@@ -253,12 +334,16 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── add_consent_image_path.sql
 │       ├── add_clinic_workflow.sql
 │       ├── add_clinic_consent_choices.sql
-│       ├── add_clinic_occupancy.sql
+│       ├── add_clinic_occupancy.sql   # obsolete (counts are live)
+│       ├── add_admin_notification_reads.sql
 │       ├── add_clinic_checkins.sql
 │       ├── add_visit_medicine_quantity.sql
 │       ├── add_nurses.sql
 │       ├── add_student_notification_preferences.sql
 │       ├── add_medicine_inventory.sql
+│       ├── add_medicine_archive.sql
+│       ├── add_privacy_consent.sql
+│       ├── add_audit_logs.sql
 │       ├── add_visit_medicine_given.sql
 │       └── add_profile_images.sql
 ├── public/                 # Web entry point
@@ -274,6 +359,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── js/chat-queue.js # Queue polling client
 │       └── images/
 ├── vendor/                 # Composer packages (gitignored)
+├── .htaccess               # Blocks web access to private files and folders
 ├── .env                    # Environment config (gitignored)
 ├── .env.example            # Template for .env
 ├── composer.json

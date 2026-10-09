@@ -27,9 +27,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        if ($reportAction === 'delete_medicine') {
-            deleteMedicine($pdo, (int) ($_POST['medicine_id'] ?? 0));
-            header('Location: reports.php?success=medicine_deleted');
+        if ($reportAction === 'archive_medicine') {
+            archiveMedicine($pdo, (int) ($_POST['medicine_id'] ?? 0));
+            header('Location: reports.php?success=medicine_archived');
+            exit;
+        }
+
+        if ($reportAction === 'restore_medicine') {
+            restoreMedicine($pdo, (int) ($_POST['medicine_id'] ?? 0));
+            header('Location: reports.php?success=medicine_restored');
             exit;
         }
 
@@ -37,9 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (PDOException $error) {
         $reportErrors[] = $reportAction === 'add_medicine' && $error->getCode() === '23000'
             ? 'A medicine with that name already exists.'
-            : ($reportAction === 'delete_medicine'
-                ? 'The medicine could not be deleted.'
-                : 'The medicine inventory could not be updated.');
+            : 'The medicine inventory could not be updated.';
     } catch (InvalidArgumentException | RuntimeException $error) {
         $reportErrors[] = $error->getMessage();
     }
@@ -58,29 +62,22 @@ $visitStatus = in_array(($_GET['visit_status'] ?? ''), ['open', 'completed', 'fo
 $medicineSummary = medicineInventorySummary($pdo);
 $allMedicines = fetchMedicines($pdo);
 $medicines = fetchMedicines($pdo, $medicineSearch, $lowStockOnly);
-$visitReports = fetchClinicVisits($pdo);
-
-if ($visitSearch !== '') {
-    $needle = mb_strtolower($visitSearch);
-    $visitReports = array_values(array_filter($visitReports, static function (array $visit) use ($needle): bool {
-        $haystack = mb_strtolower(implode(' ', [
-            $visit['FirstName'] ?? '',
-            $visit['LastName'] ?? '',
-            $visit['Complaint'] ?? '',
-            $visit['Treatment'] ?? '',
-            $visit['MedicineGiven'] ?? '',
-            $visit['AdminName'] ?? '',
-        ]));
-        return str_contains($haystack, $needle);
-    }));
-}
-
-if ($visitStatus !== '') {
-    $visitReports = array_values(array_filter(
-        $visitReports,
-        static fn(array $visit): bool => ($visit['Status'] ?? '') === $visitStatus
-    ));
-}
+$archivedMedicines = fetchMedicines($pdo, '', false, true);
+$medicineArchiveInstalled = medicineArchiveInstalled($pdo);
+$existingMedicineNames = array_merge(
+    array_map(static fn(array $medicine): array => ['name' => $medicine['Name'], 'archived' => false], $allMedicines),
+    array_map(static fn(array $medicine): array => ['name' => $medicine['Name'], 'archived' => true], $archivedMedicines)
+);
+// Filtered in SQL and capped so the page stays fast as visit history grows; filters reach older visits.
+$visitReportLimit = 200;
+$visitReports = fetchClinicVisits(
+    $pdo,
+    null,
+    $visitReportLimit + 1,
+    ['search' => mb_substr($visitSearch, 0, 100), 'status' => $visitStatus]
+);
+$visitReportsTruncated = count($visitReports) > $visitReportLimit;
+$visitReports = array_slice($visitReports, 0, $visitReportLimit);
 
 $adminPageTitle = 'Reports';
 $adminContentClass = 'reports-content';
@@ -93,7 +90,7 @@ $adminBreadcrumbTrail = ['Reports'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reports</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -105,17 +102,16 @@ $adminBreadcrumbTrail = ['Reports'];
                 <h1>Reports</h1>
                 <p>Monitor medicine stock and review clinic visit activity.</p>
             </div>
-            <button type="button" class="btn btn-success reports-print-button" data-print-report>
-                <?= studentDashboardIcon('report') ?> Print report
-            </button>
         </div>
 
         <?php if (($_GET['success'] ?? '') === 'medicine_added'): ?>
             <div class="alert alert-success">Medicine added to inventory.</div>
         <?php elseif (($_GET['success'] ?? '') === 'stock_added'): ?>
             <div class="alert alert-success">Medicine stock updated.</div>
-        <?php elseif (($_GET['success'] ?? '') === 'medicine_deleted'): ?>
-            <div class="alert alert-success">Medicine deleted from inventory.</div>
+        <?php elseif (($_GET['success'] ?? '') === 'medicine_archived'): ?>
+            <div class="alert alert-success">Medicine moved to the archive. You can restore it when stock arrives again.</div>
+        <?php elseif (($_GET['success'] ?? '') === 'medicine_restored'): ?>
+            <div class="alert alert-success">Medicine restored to the active inventory.</div>
         <?php endif; ?>
 
         <?php if ($reportErrors && !$medicineDialogHasError && !$stockDialogHasError): ?>
@@ -215,7 +211,10 @@ $adminBreadcrumbTrail = ['Reports'];
                         <?php endif; ?>
                         <label class="reports-form-field reports-field-wide" for="medicine-name">
                             <span>Medicine name</span>
-                            <input id="medicine-name" type="text" name="name" value="<?= $medicineDialogHasError ? htmlspecialchars((string) ($_POST['name'] ?? '')) : '' ?>" maxlength="120" autocomplete="off" required autofocus>
+                            <input id="medicine-name" type="text" name="name" value="<?= $medicineDialogHasError ? htmlspecialchars((string) ($_POST['name'] ?? '')) : '' ?>" maxlength="120" autocomplete="off" required autofocus
+                                   aria-describedby="medicine-name-duplicate" data-medicine-name-input
+                                   data-existing-medicines="<?= htmlspecialchars(json_encode($existingMedicineNames)) ?>">
+                            <small class="reports-field-error" id="medicine-name-duplicate" data-medicine-name-duplicate aria-live="polite" hidden></small>
                         </label>
                         <label class="reports-form-field" for="medicine-dosage">
                             <span>Dosage or item type</span>
@@ -297,14 +296,19 @@ $adminBreadcrumbTrail = ['Reports'];
                                 <td data-label="Description"><?= htmlspecialchars($medicine['Description'] ?: '—') ?></td>
                                 <td data-label="Level"><span class="stock-level <?= $isLowStock ? 'is-low' : 'is-ok' ?>"><?= $isLowStock ? 'Low stock' : 'In stock' ?></span></td>
                                 <td data-label="Actions" class="reports-table-actions">
-                                    <form method="POST" class="delete-form reports-delete-form" data-delete-title="Delete medicine" data-delete-message="Delete <?= htmlspecialchars($medicine['Name']) ?> from the medicine inventory? This action cannot be undone.">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
-                                        <input type="hidden" name="action" value="delete_medicine">
-                                        <input type="hidden" name="medicine_id" value="<?= (int) $medicine['MedicineID'] ?>">
-                                        <button type="submit" class="btn reports-delete-button" title="Delete <?= htmlspecialchars($medicine['Name']) ?>">
-                                            <span>Delete</span>
-                                        </button>
-                                    </form>
+                                    <?php if ($medicineArchiveInstalled): ?>
+                                        <form method="POST" class="delete-form reports-row-action-form" data-delete-title="Archive medicine" data-delete-message="Archive <?= htmlspecialchars($medicine['Name']) ?>? It will be hidden from the inventory and Check In until you restore it." data-confirm-label="Archive" data-confirm-class="btn-warning">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                                            <input type="hidden" name="action" value="archive_medicine">
+                                            <input type="hidden" name="medicine_id" value="<?= (int) $medicine['MedicineID'] ?>">
+                                            <button type="submit" class="btn reports-row-action is-archive" title="Archive <?= htmlspecialchars($medicine['Name']) ?>">
+                                                <?= studentDashboardIcon('archive') ?>
+                                                <span>Archive</span>
+                                            </button>
+                                        </form>
+                                    <?php else: ?>
+                                        —
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -315,6 +319,50 @@ $adminBreadcrumbTrail = ['Reports'];
                 </table>
             </div>
         </section>
+
+        <?php if ($medicineArchiveInstalled): ?>
+            <section class="reports-section archived-medicine-section" id="archived-medicines">
+                <div class="reports-section-heading">
+                    <div>
+                        <h2>Archived medicines</h2>
+                        <p>Archived items are hidden from the inventory and Check In. Restore one when it is back in stock, then use Add stock to record the quantity.</p>
+                    </div>
+                </div>
+
+                <div class="reports-table-wrap">
+                    <table class="reports-table archived-medicine-table">
+                        <thead>
+                            <tr><th>Medicine</th><th>Stock</th><th>Dosage</th><th>Archived</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                        <?php if ($archivedMedicines): ?>
+                            <?php foreach ($archivedMedicines as $medicine): ?>
+                                <tr>
+                                    <td data-label="Medicine"><span class="reports-medicine-name"><span class="reports-inline-medicine-icon" aria-hidden="true"><img src="../../public/assets/images/bottle.png" alt=""></span> <?= htmlspecialchars($medicine['Name']) ?></span></td>
+                                    <td data-label="Stock"><strong><?= (int) $medicine['Stock'] ?></strong></td>
+                                    <td data-label="Dosage"><?= htmlspecialchars($medicine['Dosage'] ?: '—') ?></td>
+                                    <td data-label="Archived"><?= $medicine['ArchivedAt'] ? date('M d, Y', strtotime($medicine['ArchivedAt'])) : '—' ?></td>
+                                    <td data-label="Actions" class="reports-table-actions">
+                                        <form method="POST" class="reports-row-action-form">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                                            <input type="hidden" name="action" value="restore_medicine">
+                                            <input type="hidden" name="medicine_id" value="<?= (int) $medicine['MedicineID'] ?>">
+                                            <button type="submit" class="btn reports-row-action is-restore" title="Restore <?= htmlspecialchars($medicine['Name']) ?>">
+                                                <?= studentDashboardIcon('restore') ?>
+                                                <span>Restore</span>
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="5" class="reports-empty-cell">No archived medicines.</td></tr>
+                        <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        <?php endif; ?>
 
         <section class="reports-section visit-reports-section">
             <div class="reports-section-heading">
@@ -337,7 +385,7 @@ $adminBreadcrumbTrail = ['Reports'];
             <div class="reports-table-wrap">
                 <table class="reports-table visit-report-table">
                     <thead>
-                        <tr><th>Patient name</th><th>Concern</th><th>Medicine given</th><th>Date</th><th>Consulted by</th><th>Status</th></tr>
+                        <tr><th>Patient name</th><th>Concern</th><th>Medicine given</th><th>Date &amp; time</th><th>Consulted by</th><th>Status</th></tr>
                     </thead>
                     <tbody>
                     <?php if ($visitReports): ?>
@@ -346,7 +394,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                 <td data-label="Patient"><strong><?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? ''))) ?></strong><small><?= ($visit['PersonType'] ?? 'student') === 'staff' ? 'Staff #' . (int) $visit['PersonID'] : '#' . (int) $visit['StudentID'] ?></small></td>
                                 <td data-label="Concern"><?= htmlspecialchars($visit['Complaint']) ?></td>
                                 <td data-label="Medicine given"><?= htmlspecialchars($visit['MedicineGiven'] ?: '—') ?><?php if (!empty($visit['MedicineDosage'])): ?><small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small><?php endif; ?><?php if (!empty($visit['MedicineQuantity'])): ?><small>Quantity: <?= (int) $visit['MedicineQuantity'] ?></small><?php endif; ?></td>
-                                <td data-label="Date"><?= date('M d, Y', strtotime($visit['CreatedAt'])) ?><small><?= date('g:i A', strtotime($visit['CreatedAt'])) ?></small></td>
+                                <td data-label="Date"><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?><?= visitTimesHtml($visit) ?></td>
                                 <td data-label="Consulted by"><?= htmlspecialchars($visit['AdminName'] ?: 'Admin') ?></td>
                                 <td data-label="Status"><span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span></td>
                             </tr>
@@ -357,10 +405,13 @@ $adminBreadcrumbTrail = ['Reports'];
                     </tbody>
                 </table>
             </div>
+            <?php if ($visitReportsTruncated): ?>
+                <p class="audit-muted reports-limit-note">Showing the <?= (int) $visitReportLimit ?> most recent visits. Use the search or status filter to find older visits.</p>
+            <?php endif; ?>
         </section>
     </div>
 
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

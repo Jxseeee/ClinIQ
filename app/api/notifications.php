@@ -22,7 +22,7 @@ $user = currentUser();
 $role = $user['role'];
 $userId = (int) $user['id'];
 
-markNotificationsRead($pdo, $role, $role === 'student' ? $userId : null);
+markNotificationsRead($pdo, $role, $userId);
 
 echo json_encode(['ok' => true]);
 exit;

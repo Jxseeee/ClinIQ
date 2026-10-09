@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/../app/config/auth.php';
+require_once __DIR__ . '/../app/includes/helpers.php';
 
 $basePath = getBasePath();
 $assetsPath = $basePath . '/public/assets';
@@ -18,35 +19,45 @@ if (isLoggedIn()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
+    $username = is_string($_POST['username'] ?? null) ? trim($_POST['username']) : '';
+    $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
     if ($username === '' || $password === '') {
         $error = 'Please fill in all fields.';
     } else {
         $stmt = $pdo->prepare("SELECT * FROM Admins WHERE Username = ?");
         $stmt->execute([$username]);
-        $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+        $admin = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-        if ($admin && password_verify($password, $admin['Password'])) {
+        // Student IDs are digits only; without this check MySQL would match "10001abc" to student 10001.
+        $student = null;
+        if (ctype_digit($username) && strlen($username) <= 10) {
+            $stmt = $pdo->prepare("SELECT * FROM Students WHERE StudentID = ?");
+            $stmt->execute([$username]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+
+        $targetRole = $admin ? 'admin' : ($student ? 'student' : null);
+        $targetId = $admin ? (int) $admin['AdminID'] : ($student ? (int) $student['StudentID'] : null);
+        $throttled = loginIsThrottled($pdo, $targetRole, $targetId);
+
+        if ($throttled) {
+            $error = 'Too many failed sign-in attempts. Please wait ' . LOGIN_LOCKOUT_MINUTES . ' minutes and try again.';
+        } elseif ($admin && password_verify($password, $admin['Password'])) {
             session_regenerate_id(true);
             $_SESSION['user_id']   = $admin['AdminID'];
             $_SESSION['role']      = 'admin';
             $_SESSION['user_name'] = 'Admin';
+            auditLog($pdo, 'security', 'auth.login', 'Signed in as administrator.');
             header('Location: ' . $basePath . '/public/index.php');
             exit;
-        }
-
-        $stmt = $pdo->prepare("SELECT * FROM Students WHERE StudentID = ?");
-        $stmt->execute([$username]);
-        $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($student && password_verify($password, $student['Password'])) {
+        } elseif ($student && password_verify($password, $student['Password'])) {
             session_regenerate_id(true);
             $_SESSION['user_id']   = $student['StudentID'];
             $_SESSION['role']      = 'student';
             $_SESSION['user_name'] = $student['FirstName'] . ' ' . $student['LastName'];
             $_SESSION['must_change_password'] = (bool) ($student['MustChangePassword'] ?? false);
+            auditLog($pdo, 'security', 'auth.login', 'Signed in to the student portal.');
 
             if ($_SESSION['must_change_password']) {
                 header('Location: ' . $basePath . '/students/change-password.php?force=1');
@@ -54,9 +65,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: ' . $basePath . '/students/index.php');
             }
             exit;
+        } else {
+            if ($targetRole === null) {
+                // Do the same bcrypt work as a real check so response time doesn't reveal which IDs exist.
+                password_verify($password, '$2y$10$wmDKaC1keu.3.gLKoiMgGe6.o41USYZRn1TU3N6WpbeNW4HERwB46');
+            }
+            // Record the failed attempt against the targeted account so its owner can see it.
+            auditLog(
+                $pdo,
+                'security',
+                'auth.login_failed',
+                $targetRole !== null
+                    ? 'Failed sign-in attempt (wrong password).'
+                    : 'Failed sign-in attempt for unknown ID/username "' . mb_substr($username, 0, 60) . '".',
+                ['actor_role' => 'guest', 'actor_id' => null, 'subject_role' => $targetRole, 'subject_id' => $targetId]
+            );
+            $error = 'Invalid credentials. Please check your Student ID / username and password.';
         }
-
-        $error = 'Invalid credentials. Please check your Student ID / username and password.';
     }
 }
 ?>
@@ -67,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
     <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/tailwind.css">
-    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/style.css">
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png">
 </head>
 <body class="login-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -134,12 +159,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <button type="button" class="password-toggle" data-target="password">Show</button>
                         </div>
                     </div>
-                    <div class="modal-login-options">
-                        <label class="remember-me">
-                            <input type="checkbox" name="remember" value="1">
-                            Remember me
-                        </label>
-                    </div>
                     <button type="submit" class="btn modal-login-submit">Sign in</button>
                 </form>
 
@@ -163,6 +182,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
     <script src="<?= htmlspecialchars($assetsPath) ?>/js/motion.js"></script>
-    <script src="<?= htmlspecialchars($assetsPath) ?>/js/main.js"></script>
+    <script src="<?= htmlspecialchars($assetsPath) ?>/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

@@ -1,22 +1,35 @@
 <?php
 require __DIR__ . '/../config/auth.php';
+require_once __DIR__ . '/../includes/helpers.php';
 requireAdmin();
 
 $errors = [];
 $adminPageTitle = 'New Announcement';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrfToken();
     $title   = trim($_POST['title'] ?? '');
     $content = trim($_POST['content'] ?? '');
 
     if ($title === '')   $errors[] = 'Title is required.';
     if ($content === '') $errors[] = 'Content is required.';
+    validateMaxLengths(
+        ['title' => $title, 'content' => $content],
+        ['title' => ['Title', 200], 'content' => ['Content', 10000]],
+        $errors
+    );
 
     if (empty($errors)) {
-        $stmt = $pdo->prepare("INSERT INTO Announcements (Title, Content, AdminID) VALUES (?, ?, ?)");
-        $stmt->execute([$title, $content, $_SESSION['user_id']]);
-        header("Location: announcements.php?success=created");
-        exit;
+        try {
+            $stmt = $pdo->prepare("INSERT INTO Announcements (Title, Content, AdminID) VALUES (?, ?, ?)");
+            $stmt->execute([$title, $content, $_SESSION['user_id']]);
+            auditLog($pdo, 'announcements', 'announcement.created', 'Posted announcement "' . mb_strimwidth($title, 0, 120, '...') . '".', ['subject_role' => null]);
+            header("Location: announcements.php?success=created");
+            exit;
+        } catch (PDOException $error) {
+            error_log('Announcement creation failed: ' . $error->getMessage());
+            $errors[] = 'The announcement could not be published. Please try again.';
+        }
     }
 }
 ?>
@@ -27,7 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Announcement</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -47,14 +60,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="card">
             <form method="POST" action="">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                 <div class="form-group">
                     <label for="title">Title *</label>
                     <input type="text" id="title" name="title"
-                           value="<?= htmlspecialchars($_POST['title'] ?? '') ?>" required>
+                           value="<?= htmlspecialchars($_POST['title'] ?? '') ?>" maxlength="200" required>
                 </div>
                 <div class="form-group">
                     <label for="content">Content *</label>
-                    <textarea id="content" name="content" rows="6" required><?= htmlspecialchars($_POST['content'] ?? '') ?></textarea>
+                    <textarea id="content" name="content" rows="6" maxlength="10000" required><?= htmlspecialchars($_POST['content'] ?? '') ?></textarea>
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Publish</button>
@@ -64,6 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

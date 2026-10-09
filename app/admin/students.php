@@ -16,7 +16,7 @@ $adminPageTitle = 'Students';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -37,7 +37,7 @@ $adminPageTitle = 'Students';
                             'added'          => 'Student added successfully.',
                             'updated'        => 'Student updated successfully.',
                             'deleted'        => 'Student deleted successfully.',
-                            'password_reset' => 'Student password has been reset.',
+                            'password_reset' => 'Student password has been reset. The student must change it at their next sign-in.',
                             default          => 'Operation completed.',
                         };
                         echo htmlspecialchars($msg);
@@ -100,6 +100,6 @@ $adminPageTitle = 'Students';
             <?php endif; ?>
         </section>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

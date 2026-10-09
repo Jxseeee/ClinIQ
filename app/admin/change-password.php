@@ -35,6 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $activeTab = 'profile';
         try {
             storeProfileImage($pdo, 'admin', $adminId, $_FILES['profile_image'] ?? []);
+            auditLog($pdo, 'account', 'account.photo_updated', 'Updated profile photo.');
             header('Location: change-password.php?tab=profile&success=photo');
             exit;
         } catch (InvalidArgumentException | RuntimeException $error) {
@@ -44,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $activeTab = 'profile';
         try {
             removeProfileImage($pdo, 'admin', $adminId);
+            auditLog($pdo, 'account', 'account.photo_removed', 'Removed profile photo.');
             header('Location: change-password.php?tab=profile&success=photo_removed');
             exit;
         } catch (RuntimeException $error) {
@@ -62,6 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$accountErrors) {
             $update = $pdo->prepare('UPDATE Admins SET FullName = ? WHERE AdminID = ?');
             $update->execute([$fullName, $adminId]);
+            if ($fullName !== trim((string) $settingsAdmin['FullName'])) {
+                auditLog($pdo, 'account', 'account.details_updated', 'Changed account full name from "' . trim((string) $settingsAdmin['FullName']) . '" to "' . $fullName . '".');
+            }
             header('Location: change-password.php?tab=account&success=account');
             exit;
         }
@@ -69,22 +74,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $settingsAdmin['FullName'] = $fullName;
     } elseif ($action === 'change_password') {
         $activeTab = 'account';
-        $oldPass = $_POST['old_password'] ?? '';
-        $newPass = $_POST['new_password'] ?? '';
-        $confirm = $_POST['confirm_password'] ?? '';
+        $oldPass = (string) ($_POST['old_password'] ?? '');
+        $newPass = (string) ($_POST['new_password'] ?? '');
+        $confirm = (string) ($_POST['confirm_password'] ?? '');
 
         if (!password_verify($oldPass, (string) $settingsAdmin['Password'])) {
             $passwordErrors[] = 'Current password is incorrect.';
         }
-        if (strlen($newPass) < 8) {
-            $passwordErrors[] = 'New password must be at least 8 characters.';
-        }
-        if (!preg_match('/\d/', $newPass)) {
-            $passwordErrors[] = 'New password must contain at least one number.';
-        }
-        if (!preg_match('/[^A-Za-z0-9]/', $newPass)) {
-            $passwordErrors[] = 'New password must contain at least one special character.';
-        }
+        validateNewPassword($newPass, $passwordErrors);
         if ($newPass !== $confirm) {
             $passwordErrors[] = 'New passwords do not match.';
         }
@@ -92,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($passwordErrors)) {
             $stmt = $pdo->prepare("UPDATE Admins SET Password = ? WHERE AdminID = ?");
             $stmt->execute([password_hash($newPass, PASSWORD_DEFAULT), $adminId]);
+            session_regenerate_id(true);
+            auditLog($pdo, 'security', 'account.password_changed', 'Changed account password.');
             header('Location: change-password.php?tab=account&success=password');
             exit;
         }

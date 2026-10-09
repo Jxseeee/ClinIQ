@@ -2,9 +2,12 @@ CREATE DATABASE IF NOT EXISTS Clinic;
 USE Clinic;
 
 -- Drop existing tables in reverse dependency order
+DROP TABLE IF EXISTS AuditLogs;
 DROP TABLE IF EXISTS ChatQueue;
 DROP TABLE IF EXISTS ActiveChatSessions;
+DROP TABLE IF EXISTS AdminNotificationReads;
 DROP TABLE IF EXISTS Notifications;
+-- ClinicOccupancy is no longer used (counts are live); dropped so old installs are cleaned up.
 DROP TABLE IF EXISTS ClinicOccupancy;
 DROP TABLE IF EXISTS Nurses;
 DROP TABLE IF EXISTS Medicines;
@@ -57,6 +60,7 @@ CREATE TABLE Students (
     EmergencyDecisionConsent TINYINT(1) NOT NULL DEFAULT 0,
     EmergencyCallGuardian TINYINT(1) NOT NULL DEFAULT 0,
     EmergencyOther VARCHAR(255),
+    PrivacyConsentAt DATETIME NULL,
 
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -167,11 +171,14 @@ CREATE TABLE Medicines (
     Dosage VARCHAR(120),
     Description VARCHAR(255),
     LowStockThreshold INT UNSIGNED NOT NULL DEFAULT 20,
+    IsArchived TINYINT(1) NOT NULL DEFAULT 0,
+    ArchivedAt DATETIME NULL,
     CreatedByAdminID INT NULL,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (CreatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
-    INDEX idx_medicines_stock (Stock, LowStockThreshold)
+    INDEX idx_medicines_stock (Stock, LowStockThreshold),
+    INDEX idx_medicines_archived (IsArchived, Name)
 );
 
 INSERT INTO Medicines (Name, Stock, Dosage, Description, LowStockThreshold, CreatedByAdminID) VALUES
@@ -194,19 +201,6 @@ CREATE TABLE Nurses (
     FOREIGN KEY (CreatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
     INDEX idx_nurses_duty_name (IsOnDuty, FullName)
 );
-
-CREATE TABLE ClinicOccupancy (
-    OccupancyID TINYINT PRIMARY KEY DEFAULT 1,
-    NursesOnDuty INT UNSIGNED NOT NULL DEFAULT 0,
-    StudentsInClinic INT UNSIGNED NOT NULL DEFAULT 0,
-    UpdatedByAdminID INT NULL,
-    UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (UpdatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
-    CONSTRAINT chk_single_occupancy_row CHECK (OccupancyID = 1)
-);
-
-INSERT INTO ClinicOccupancy (OccupancyID, NursesOnDuty, StudentsInClinic)
-VALUES (1, 0, 0);
 
 CREATE TABLE ClinicCheckIns (
     CheckInID INT AUTO_INCREMENT PRIMARY KEY,
@@ -243,6 +237,16 @@ CREATE TABLE Notifications (
     INDEX idx_notifications_target_read (TargetRole, TargetUserID, IsRead, CreatedAt)
 );
 
+-- Per-admin read state for clinic-wide admin notifications.
+CREATE TABLE AdminNotificationReads (
+    NotificationID INT NOT NULL,
+    AdminID INT NOT NULL,
+    ReadAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (NotificationID, AdminID),
+    FOREIGN KEY (NotificationID) REFERENCES Notifications(NotificationID) ON DELETE CASCADE,
+    FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE CASCADE
+);
+
 CREATE TABLE ActiveChatSessions (
     SessionID VARCHAR(128) PRIMARY KEY,
     UserRole ENUM('student', 'admin') NOT NULL,
@@ -257,6 +261,26 @@ CREATE TABLE ChatQueue (
     UserID INT NOT NULL,
     CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     LastSeenAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE AuditLogs (
+    AuditLogID INT AUTO_INCREMENT PRIMARY KEY,
+    ActorRole ENUM('admin', 'student', 'guest') NOT NULL,
+    ActorID INT NULL,
+    ActorName VARCHAR(150) NOT NULL,
+    SubjectRole ENUM('admin', 'student') NULL,
+    SubjectID INT NULL,
+    SubjectName VARCHAR(150) NULL,
+    Category VARCHAR(30) NOT NULL,
+    Action VARCHAR(60) NOT NULL,
+    Description VARCHAR(500) NOT NULL,
+    IPAddress VARCHAR(45) NULL,
+    UserAgent VARCHAR(255) NULL,
+    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_audit_created (CreatedAt),
+    INDEX idx_audit_subject (SubjectRole, SubjectID, CreatedAt),
+    INDEX idx_audit_actor (ActorRole, ActorID, CreatedAt),
+    INDEX idx_audit_category (Category, CreatedAt)
 );
 
 -- Default admin account (username: admin, password: admin123)

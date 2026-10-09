@@ -133,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function () {
             url += '?student_id=' + encodeURIComponent(config.studentId);
         }
 
-        fetch(url, { credentials: 'same-origin' })
+        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 setConversationStatus(data.conversation_status);
@@ -225,10 +225,18 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    setInterval(refreshMessages, 1000);
+    // Poll as a fallback: every 3s without Pusher, every 15s once Pusher's realtime connection is up.
+    var pollDelay = 3000;
+    function schedulePoll() {
+        setTimeout(function () {
+            if (!document.hidden) refreshMessages();
+            schedulePoll();
+        }, pollDelay);
+    }
+    schedulePoll();
 
     window.refreshChatThreads = function () {
-        fetch(config.apiBase + '/chat.php?action=threads', { credentials: 'same-origin' })
+        fetch(config.apiBase + '/chat.php?action=threads', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 if (!data.threads) return;
@@ -275,6 +283,10 @@ document.addEventListener('DOMContentLoaded', function () {
             auth: {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             }
+        });
+
+        pusher.connection.bind('state_change', function (states) {
+            pollDelay = states.current === 'connected' ? 15000 : 3000;
         });
 
         var chatChannel = pusher.subscribe(config.channel);

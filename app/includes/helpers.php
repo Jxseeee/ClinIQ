@@ -22,7 +22,10 @@ function studentDashboardIcon(string $name): string
         'close'     => '<path d="m6 6 12 12"></path><path d="m18 6-12 12"></path>',
         'chevron-left' => '<path d="m15 18-6-6 6-6"></path>',
         'chevron-right' => '<path d="m9 6 6 6-6 6"></path>',
-        'trash'     => '<path d="M4.5 7h15"></path><path d="M9 3.5h6L16 7H8l1-3.5Z"></path><path d="m7 7 .75 13.5h8.5L17 7"></path><path d="M10 11v5.5"></path><path d="M14 11v5.5"></path>',
+        'audit'     => '<rect x="4.5" y="4" width="13" height="16.5" rx="2"></rect><path d="M8.5 4V2.75h5V4"></path><path d="M8 9h6"></path><path d="M8 12.5h3.5"></path><circle cx="17" cy="16.5" r="3.75"></circle><path d="M17 14.75v1.75l1.25 1"></path>',
+        'archive'   => '<rect x="3.5" y="4" width="17" height="4.5" rx="1"></rect><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10"></path><path d="M10 12.5h4"></path>',
+        'restore'   => '<path d="M4 12a8 8 0 1 0 2.35-5.65"></path><path d="M4 4.5v4h4"></path><path d="M12 8v4l2.5 2"></path>',
+        'trash'     =>'<path d="M4.5 7h15"></path><path d="M9 3.5h6L16 7H8l1-3.5Z"></path><path d="m7 7 .75 13.5h8.5L17 7"></path><path d="M10 11v5.5"></path><path d="M14 11v5.5"></path>',
         'send'      => '<path d="m3.5 11.5 17-7-6.75 16-2.25-6.75-8-2.25Z"></path><path d="m11.5 13.75 9-9.25"></path>',
         'medical'   => '<rect x="3.5" y="7" width="17" height="13.5" rx="2"></rect><path d="M9 7V4.5h6V7"></path><path d="M12 10.5v6.5"></path><path d="M8.75 13.75h6.5"></path>',
         'visit'     => '<rect x="3.5" y="7" width="17" height="13.5" rx="2"></rect><path d="M9 7V4.5h6V7"></path><path d="M12 10.5v6.5"></path><path d="M8.75 13.75h6.5"></path>',
@@ -315,7 +318,15 @@ function countUnreadNotifications(PDO $pdo, string $targetRole, ?int $targetUser
         return 0;
     }
 
-    if ($targetRole === 'admin') {
+    if ($targetRole === 'admin' && $targetUserId !== null && databaseTableExists($pdo, 'AdminNotificationReads')) {
+        // Admin notifications are shared; each admin's read state is tracked separately.
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM Notifications n
+             WHERE n.TargetRole = 'admin' AND n.IsRead = 0
+               AND NOT EXISTS (SELECT 1 FROM AdminNotificationReads r WHERE r.NotificationID = n.NotificationID AND r.AdminID = ?)"
+        );
+        $stmt->execute([$targetUserId]);
+    } elseif ($targetRole === 'admin') {
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM Notifications WHERE TargetRole = 'admin' AND IsRead = 0");
         $stmt->execute();
     } else {
@@ -334,7 +345,18 @@ function fetchNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = n
         return [];
     }
 
-    if ($targetRole === 'admin') {
+    if ($targetRole === 'admin' && $targetUserId !== null && databaseTableExists($pdo, 'AdminNotificationReads')) {
+        $stmt = $pdo->prepare(
+            "SELECT n.NotificationID, n.TargetRole, n.TargetUserID, n.Type, n.Title, n.Body, n.Link, n.CreatedAt,
+                    (n.IsRead = 1 OR r.AdminID IS NOT NULL) AS IsRead
+             FROM Notifications n
+             LEFT JOIN AdminNotificationReads r ON r.NotificationID = n.NotificationID AND r.AdminID = ?
+             WHERE n.TargetRole = 'admin'
+             ORDER BY n.CreatedAt DESC
+             LIMIT " . (int) $limit
+        );
+        $stmt->execute([$targetUserId]);
+    } elseif ($targetRole === 'admin') {
         $stmt = $pdo->prepare(
             "SELECT * FROM Notifications
              WHERE TargetRole = 'admin'
@@ -361,7 +383,14 @@ function markNotificationsRead(PDO $pdo, string $targetRole, ?int $targetUserId 
         return;
     }
 
-    if ($targetRole === 'admin') {
+    if ($targetRole === 'admin' && $targetUserId !== null && databaseTableExists($pdo, 'AdminNotificationReads')) {
+        // Mark read for this admin only.
+        $stmt = $pdo->prepare(
+            "INSERT IGNORE INTO AdminNotificationReads (NotificationID, AdminID)
+             SELECT NotificationID, ? FROM Notifications WHERE TargetRole = 'admin' AND IsRead = 0"
+        );
+        $stmt->execute([$targetUserId]);
+    } elseif ($targetRole === 'admin') {
         $stmt = $pdo->prepare("UPDATE Notifications SET IsRead = 1 WHERE TargetRole = 'admin' AND IsRead = 0");
         $stmt->execute();
     } else {
@@ -370,29 +399,91 @@ function markNotificationsRead(PDO $pdo, string $targetRole, ?int $targetUserId 
     }
 }
 
-function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0): array
+// Time in/out columns for visit queries; visits recorded before check-ins existed fall back to CreatedAt.
+function clinicVisitCheckInSql(PDO $pdo): array
+{
+    if (!databaseTableExists($pdo, 'ClinicCheckIns')) {
+        return ["v.CreatedAt AS TimeIn, NULL AS TimeOut, 0 AS IsInClinic", ''];
+    }
+
+    return [
+        "COALESCE(ci.CheckedInAt, v.CreatedAt) AS TimeIn,
+         ci.CheckedOutAt AS TimeOut,
+         (ci.CheckInID IS NOT NULL AND ci.CheckedOutAt IS NULL) AS IsInClinic",
+        'LEFT JOIN ClinicCheckIns ci ON ci.VisitID = v.VisitID',
+    ];
+}
+
+function visitTimesHtml(array $visit): string
+{
+    $timeIn = !empty($visit['TimeIn']) ? strtotime($visit['TimeIn']) : false;
+    $timeOut = !empty($visit['TimeOut']) ? strtotime($visit['TimeOut']) : false;
+
+    $inLabel = $timeIn ? date('g:i A', $timeIn) : '—';
+    if ($timeOut) {
+        // Show the date too when a visit runs past midnight.
+        $outLabel = $timeIn && date('Y-m-d', $timeIn) !== date('Y-m-d', $timeOut)
+            ? date('M d, g:i A', $timeOut)
+            : date('g:i A', $timeOut);
+    } else {
+        $outLabel = (int) ($visit['IsInClinic'] ?? 0) === 1 ? 'Still in clinic' : '—';
+    }
+
+    return '<span class="visit-time-row">'
+        . '<span class="visit-time is-in"><b>Time in</b>'
+        . ($timeIn ? '<time datetime="' . date('c', $timeIn) . '">' . $inLabel . '</time>' : $inLabel)
+        . '</span>'
+        . '<span class="visit-time is-out' . (!$timeOut && (int) ($visit['IsInClinic'] ?? 0) === 1 ? ' is-pending' : '') . '"><b>Time out</b>'
+        . ($timeOut ? '<time datetime="' . date('c', $timeOut) . '">' . $outLabel . '</time>' : $outLabel)
+        . '</span>'
+        . '</span>';
+}
+
+/**
+ * $filters (optional): 'search' matches patient, complaint, treatment, medicine, or staff name;
+ * 'status' is open / completed / follow-up.
+ */
+function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, array $filters = []): array
 {
     if (!databaseTableExists($pdo, 'ClinicVisits')) {
         return [];
     }
 
-        $sql = "SELECT v.*,
+    [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
+    $sql = "SELECT v.*,
                CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
                CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
                CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
                COALESCE(v.StudentID, v.StaffID) AS PersonID,
-               a.FullName AS AdminName
+               a.FullName AS AdminName,
+               {$checkInSelect}
             FROM ClinicVisits v
             LEFT JOIN Students s ON s.StudentID = v.StudentID
             LEFT JOIN Admins staff ON staff.AdminID = v.StaffID
-            LEFT JOIN Admins a ON a.AdminID = v.AdminID";
+            LEFT JOIN Admins a ON a.AdminID = v.AdminID
+            {$checkInJoin}";
+    $where = [];
     $params = [];
 
     if ($studentId !== null) {
-        $sql .= " WHERE v.StudentID = ?";
+        $where[] = 'v.StudentID = ?';
         $params[] = $studentId;
     }
+    $search = trim((string) ($filters['search'] ?? ''));
+    if ($search !== '') {
+        $where[] = "(CONCAT_WS(' ', s.FirstName, s.LastName, staff.FullName) LIKE ?
+                     OR v.Complaint LIKE ? OR v.Treatment LIKE ? OR v.MedicineGiven LIKE ? OR a.FullName LIKE ?)";
+        $term = '%' . $search . '%';
+        array_push($params, $term, $term, $term, $term, $term);
+    }
+    if (in_array($filters['status'] ?? '', ['open', 'completed', 'follow-up'], true)) {
+        $where[] = 'v.Status = ?';
+        $params[] = $filters['status'];
+    }
 
+    if ($where) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
     $sql .= " ORDER BY v.CreatedAt DESC";
     if ($limit > 0) {
         $sql .= " LIMIT " . (int) $limit;
@@ -403,46 +494,16 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0): ar
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function createClinicVisit(PDO $pdo, int $studentId, int $adminId, array $data): void
-{
-    if (!databaseTableExists($pdo, 'ClinicVisits')) {
-        return;
-    }
-
-    $stmt = $pdo->prepare(
-        "INSERT INTO ClinicVisits
-         (StudentID, AdminID, Complaint, Vitals, Assessment, Treatment, MedicineGiven, MedicineDosage, Status, Disposition, FollowUpDate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    );
-    $stmt->execute([
-        $studentId,
-        $adminId,
-        trim($data['complaint'] ?? ''),
-        trim($data['vitals'] ?? '') ?: null,
-        trim($data['assessment'] ?? '') ?: null,
-        trim($data['treatment'] ?? '') ?: null,
-        trim($data['medicine_given'] ?? '') ?: null,
-        trim($data['medicine_dosage'] ?? '') ?: null,
-        $data['status'] ?? 'completed',
-        trim($data['disposition'] ?? '') ?: null,
-        trim($data['follow_up_date'] ?? '') ?: null,
-    ]);
-
-    createNotification(
-        $pdo,
-        'student',
-        $studentId,
-        'clinic_visit',
-        'Clinic visit recorded',
-        'Your clinic visit record has been updated.',
-        getBasePath() . '/students/profile.php'
-    );
-}
-
-function countClinicVisits(PDO $pdo): int
+function countClinicVisits(PDO $pdo, ?int $studentId = null): int
 {
     if (!databaseTableExists($pdo, 'ClinicVisits')) {
         return 0;
+    }
+
+    if ($studentId !== null) {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits WHERE StudentID = ?");
+        $stmt->execute([$studentId]);
+        return (int) $stmt->fetchColumn();
     }
 
     return (int) $pdo->query("SELECT COUNT(*) FROM ClinicVisits")->fetchColumn();
@@ -522,10 +583,12 @@ function fetchClinicVisitsForPerson(PDO $pdo, string $personType, int $personId)
         return [];
     }
     $column = $personType === 'staff' ? 'StaffID' : 'StudentID';
+    [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
     $stmt = $pdo->prepare(
-        "SELECT v.*, a.FullName AS AdminName
+        "SELECT v.*, a.FullName AS AdminName, {$checkInSelect}
          FROM ClinicVisits v
          LEFT JOIN Admins a ON a.AdminID = v.AdminID
+         {$checkInJoin}
          WHERE v.{$column} = ?
          ORDER BY v.CreatedAt DESC"
     );
@@ -575,6 +638,14 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
     if ($complaint === '') {
         throw new InvalidArgumentException('Complaint is required.');
     }
+    $lengthErrors = [];
+    validateMaxLengths($data, [
+        'complaint' => ['Complaint', 2000], 'vitals' => ['Vitals', 255], 'assessment' => ['Assessment', 5000],
+        'treatment' => ['Treatment', 5000], 'disposition' => ['Disposition', 100],
+    ], $lengthErrors);
+    if ($lengthErrors) {
+        throw new InvalidArgumentException($lengthErrors[0]);
+    }
     $status = in_array(($data['status'] ?? ''), ['open', 'completed', 'follow-up'], true)
         ? (string) $data['status']
         : 'open';
@@ -623,7 +694,11 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
 
         $medicineName = null;
         if ($medicineId !== null) {
-            $medicine = $pdo->prepare("SELECT MedicineID, Name, Stock FROM Medicines WHERE MedicineID = ? FOR UPDATE");
+            $medicine = $pdo->prepare(
+                "SELECT MedicineID, Name, Stock FROM Medicines WHERE MedicineID = ?"
+                . (medicineArchiveInstalled($pdo) ? ' AND IsArchived = 0' : '')
+                . ' FOR UPDATE'
+            );
             $medicine->execute([$medicineId]);
             $medicineRow = $medicine->fetch(PDO::FETCH_ASSOC);
             if (!$medicineRow) {
@@ -665,8 +740,8 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
 
         $checkIn = $pdo->prepare(
             "INSERT INTO ClinicCheckIns
-             (PersonType, StudentID, StaffID, VisitID, CheckedInByAdminID)
-             VALUES (?, ?, ?, ?, ?)"
+             (PersonType, StudentID, StaffID, VisitID, CheckedInByAdminID, CheckedInAt)
+             VALUES (?, ?, ?, ?, ?, NOW())"
         );
         $checkIn->execute([$personType, $studentId, $staffId, $visitId, $adminId]);
         $checkInId = (int) $pdo->lastInsertId();
@@ -693,6 +768,15 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
                 getBasePath() . '/students/profile.php'
             );
         }
+        auditLog(
+            $pdo,
+            'visits',
+            'visit.checked_in',
+            'Checked in ' . $person['DisplayName'] . ' (' . $personType . ') to the clinic. Complaint: '
+                . mb_strimwidth($complaint, 0, 160, '...')
+                . ($medicineName !== null ? '. Medicine given: ' . $medicineName . ' x' . $medicineQuantity : '') . '.',
+            ['actor_role' => 'admin', 'actor_id' => $adminId, 'subject_role' => $personType === 'staff' ? 'admin' : 'student', 'subject_id' => $personId]
+        );
         $pdo->commit();
         return $checkInId;
     } catch (Throwable $error) {
@@ -703,7 +787,8 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
     }
 }
 
-function checkOutClinicCheckIn(PDO $pdo, int $checkInId): void
+// Returns the recorded check-out timestamp.
+function checkOutClinicCheckIn(PDO $pdo, int $checkInId): string
 {
     if (!databaseTableExists($pdo, 'ClinicCheckIns') || $checkInId <= 0) {
         throw new InvalidArgumentException('Choose a valid active check-in.');
@@ -711,19 +796,33 @@ function checkOutClinicCheckIn(PDO $pdo, int $checkInId): void
     $pdo->beginTransaction();
     try {
         $visit = $pdo->prepare(
-            "SELECT VisitID FROM ClinicCheckIns
+            "SELECT VisitID, PersonType, StudentID, StaffID FROM ClinicCheckIns
              WHERE CheckInID = ? AND CheckedOutAt IS NULL FOR UPDATE"
         );
         $visit->execute([$checkInId]);
-        $visitId = (int) $visit->fetchColumn();
+        $checkIn = $visit->fetch(PDO::FETCH_ASSOC) ?: [];
+        $visitId = (int) ($checkIn['VisitID'] ?? 0);
         if ($visitId <= 0) {
             throw new InvalidArgumentException('This person is no longer checked in.');
         }
-        $stmt = $pdo->prepare("UPDATE ClinicCheckIns SET CheckedOutAt = NOW() WHERE CheckInID = ?");
-        $stmt->execute([$checkInId]);
+        $checkedOutAt = (string) $pdo->query('SELECT NOW()')->fetchColumn();
+        $stmt = $pdo->prepare("UPDATE ClinicCheckIns SET CheckedOutAt = ? WHERE CheckInID = ?");
+        $stmt->execute([$checkedOutAt, $checkInId]);
         $closeVisit = $pdo->prepare("UPDATE ClinicVisits SET Status = 'completed' WHERE VisitID = ? AND Status = 'open'");
         $closeVisit->execute([$visitId]);
+        $isStaff = ($checkIn['PersonType'] ?? '') === 'staff';
+        $subjectRole = $isStaff ? 'admin' : 'student';
+        $subjectId = (int) ($isStaff ? $checkIn['StaffID'] : $checkIn['StudentID']);
+        auditLog(
+            $pdo,
+            'visits',
+            'visit.checked_out',
+            'Checked out ' . (auditAccountName($pdo, $subjectRole, $subjectId) ?? 'a ' . ($isStaff ? 'staff member' : 'student'))
+                . ' (' . ($isStaff ? 'staff' : 'student') . ') from the clinic.',
+            ['subject_role' => $subjectRole, 'subject_id' => $subjectId]
+        );
         $pdo->commit();
+        return $checkedOutAt;
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -732,32 +831,13 @@ function checkOutClinicCheckIn(PDO $pdo, int $checkInId): void
     }
 }
 
+// Live counts for the dashboards: nurses toggled on duty and people currently checked in.
 function fetchClinicOccupancy(PDO $pdo): array
 {
-    $result = [
-        'NursesOnDuty' => 0,
-        'StudentsInClinic' => 0,
-        'UpdatedAt' => null,
+    return [
+        'NursesOnDuty' => countNursesOnDuty($pdo),
+        'StudentsInClinic' => countActiveClinicCheckIns($pdo),
     ];
-
-    if (databaseTableExists($pdo, 'ClinicOccupancy')) {
-        $row = $pdo->query(
-            "SELECT NursesOnDuty, StudentsInClinic, UpdatedAt
-             FROM ClinicOccupancy WHERE OccupancyID = 1"
-        )->fetch(PDO::FETCH_ASSOC);
-        if ($row) {
-            $result = $row;
-        }
-    }
-
-    if (databaseTableExists($pdo, 'Nurses')) {
-        $result['NursesOnDuty'] = countNursesOnDuty($pdo);
-    }
-    if (databaseTableExists($pdo, 'ClinicCheckIns')) {
-        $result['StudentsInClinic'] = countActiveClinicCheckIns($pdo);
-    }
-
-    return $result;
 }
 
 function fetchNurses(PDO $pdo): array
@@ -798,24 +878,6 @@ function validateNurseData(array $data): array
     return [$fullName, $position, $licenseNumber !== '' ? $licenseNumber : null];
 }
 
-function syncNursesOnDuty(PDO $pdo, int $adminId): int
-{
-    $count = countNursesOnDuty($pdo);
-    if (!databaseTableExists($pdo, 'ClinicOccupancy')) {
-        return $count;
-    }
-
-    $pdo->exec(
-        "INSERT IGNORE INTO ClinicOccupancy (OccupancyID, NursesOnDuty, StudentsInClinic)
-         VALUES (1, 0, 0)"
-    );
-    $stmt = $pdo->prepare(
-        "UPDATE ClinicOccupancy SET NursesOnDuty = ?, UpdatedByAdminID = ? WHERE OccupancyID = 1"
-    );
-    $stmt->execute([$count, $adminId]);
-    return $count;
-}
-
 function createNurse(PDO $pdo, array $data, int $adminId): int
 {
     if (!databaseTableExists($pdo, 'Nurses')) {
@@ -830,7 +892,7 @@ function createNurse(PDO $pdo, array $data, int $adminId): int
     );
     $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $adminId]);
     $nurseId = (int) $pdo->lastInsertId();
-    syncNursesOnDuty($pdo, $adminId);
+    auditLog($pdo, 'nurses', 'nurse.added', 'Added nurse ' . $fullName . ' (' . $position . ')' . ($isOnDuty ? ', on duty' : '') . '.', ['subject_role' => null]);
     return $nurseId;
 }
 
@@ -854,8 +916,9 @@ function updateNurse(PDO $pdo, int $nurseId, array $data, int $adminId): void
         if (!(bool) $exists->fetchColumn()) {
             throw new InvalidArgumentException('The selected nurse was not found.');
         }
+    } else {
+        auditLog($pdo, 'nurses', 'nurse.updated', 'Updated nurse details for ' . $fullName . '.', ['subject_role' => null]);
     }
-    syncNursesOnDuty($pdo, $adminId);
 }
 
 function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId): int
@@ -875,8 +938,18 @@ function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId
         if (!(bool) $exists->fetchColumn()) {
             throw new InvalidArgumentException('The selected nurse was not found.');
         }
+    } else {
+        $nurseName = $pdo->prepare('SELECT FullName FROM Nurses WHERE NurseID = ?');
+        $nurseName->execute([$nurseId]);
+        auditLog(
+            $pdo,
+            'nurses',
+            'nurse.duty_changed',
+            'Set nurse ' . $nurseName->fetchColumn() . ($isOnDuty ? ' on duty.' : ' off duty.'),
+            ['subject_role' => null]
+        );
     }
-    return syncNursesOnDuty($pdo, $adminId);
+    return countNursesOnDuty($pdo);
 }
 
 function deleteNurse(PDO $pdo, int $nurseId, int $adminId): void
@@ -888,33 +961,49 @@ function deleteNurse(PDO $pdo, int $nurseId, int $adminId): void
         throw new InvalidArgumentException('Choose a valid nurse to delete.');
     }
 
+    $nurseName = $pdo->prepare('SELECT FullName FROM Nurses WHERE NurseID = ?');
+    $nurseName->execute([$nurseId]);
+    $deletedNurseName = (string) $nurseName->fetchColumn();
     $stmt = $pdo->prepare("DELETE FROM Nurses WHERE NurseID = ?");
     $stmt->execute([$nurseId]);
     if ($stmt->rowCount() === 0) {
         throw new InvalidArgumentException('The selected nurse was not found.');
     }
-    syncNursesOnDuty($pdo, $adminId);
+    auditLog($pdo, 'nurses', 'nurse.deleted', 'Removed nurse ' . $deletedNurseName . ' from the directory.', ['subject_role' => null]);
+}
+
+function medicineArchiveInstalled(PDO $pdo): bool
+{
+    return databaseColumnExists($pdo, 'Medicines', 'IsArchived');
 }
 
 function medicineInventorySummary(PDO $pdo): array
 {
     if (!databaseTableExists($pdo, 'Medicines')) {
-        return ['TotalMedicines' => 0, 'LowStockMedicines' => 0];
+        return ['TotalMedicines' => 0, 'LowStockMedicines' => 0, 'ArchivedMedicines' => 0];
     }
 
+    $archiveInstalled = medicineArchiveInstalled($pdo);
     $row = $pdo->query(
-        "SELECT COUNT(*) AS TotalMedicines,
-                SUM(Stock <= LowStockThreshold) AS LowStockMedicines
-         FROM Medicines"
+        $archiveInstalled
+            ? "SELECT SUM(IsArchived = 0) AS TotalMedicines,
+                      SUM(IsArchived = 0 AND Stock <= LowStockThreshold) AS LowStockMedicines,
+                      SUM(IsArchived = 1) AS ArchivedMedicines
+               FROM Medicines"
+            : "SELECT COUNT(*) AS TotalMedicines,
+                      SUM(Stock <= LowStockThreshold) AS LowStockMedicines,
+                      0 AS ArchivedMedicines
+               FROM Medicines"
     )->fetch(PDO::FETCH_ASSOC);
 
     return [
         'TotalMedicines' => (int) ($row['TotalMedicines'] ?? 0),
         'LowStockMedicines' => (int) ($row['LowStockMedicines'] ?? 0),
+        'ArchivedMedicines' => (int) ($row['ArchivedMedicines'] ?? 0),
     ];
 }
 
-function fetchMedicines(PDO $pdo, string $search = '', bool $lowStockOnly = false): array
+function fetchMedicines(PDO $pdo, string $search = '', bool $lowStockOnly = false, bool $archived = false): array
 {
     if (!databaseTableExists($pdo, 'Medicines')) {
         return [];
@@ -922,6 +1011,12 @@ function fetchMedicines(PDO $pdo, string $search = '', bool $lowStockOnly = fals
 
     $where = [];
     $params = [];
+    if (medicineArchiveInstalled($pdo)) {
+        $where[] = 'IsArchived = ?';
+        $params[] = $archived ? 1 : 0;
+    } elseif ($archived) {
+        return [];
+    }
     if ($search !== '') {
         $where[] = '(Name LIKE ? OR Dosage LIKE ? OR Description LIKE ?)';
         $term = '%' . $search . '%';
@@ -942,13 +1037,31 @@ function fetchMedicines(PDO $pdo, string $search = '', bool $lowStockOnly = fals
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// Spacing and letter case are ignored so "Para cetamol" and "paracetamol" count as the same medicine.
+function medicineNameKey(string $name): string
+{
+    return mb_strtolower(preg_replace('/\s+/u', '', $name));
+}
+
+function findMedicineByName(PDO $pdo, string $name): ?array
+{
+    $columns = medicineArchiveInstalled($pdo) ? 'MedicineID, Name, IsArchived' : 'MedicineID, Name';
+    $key = medicineNameKey($name);
+    foreach ($pdo->query("SELECT {$columns} FROM Medicines")->fetchAll(PDO::FETCH_ASSOC) as $medicine) {
+        if (medicineNameKey($medicine['Name']) === $key) {
+            return $medicine;
+        }
+    }
+    return null;
+}
+
 function createMedicine(PDO $pdo, array $data, int $adminId): void
 {
     if (!databaseTableExists($pdo, 'Medicines')) {
         throw new RuntimeException('Medicine inventory storage is not installed.');
     }
 
-    $name = trim((string) ($data['name'] ?? ''));
+    $name = preg_replace('/\s+/u', ' ', trim((string) ($data['name'] ?? '')));
     $stock = filter_var($data['stock'] ?? null, FILTER_VALIDATE_INT);
     $threshold = filter_var($data['low_stock_threshold'] ?? null, FILTER_VALIDATE_INT);
     if ($name === '') {
@@ -959,6 +1072,23 @@ function createMedicine(PDO $pdo, array $data, int $adminId): void
     }
     if ($threshold === false || $threshold < 0 || $threshold > 999999) {
         throw new InvalidArgumentException('Low-stock threshold must be between 0 and 999999.');
+    }
+    if (mb_strlen($name) > 120) {
+        throw new InvalidArgumentException('Medicine name must not exceed 120 characters.');
+    }
+    $lengthErrors = [];
+    validateMaxLengths($data, ['dosage' => ['Dosage', 120], 'description' => ['Description', 255]], $lengthErrors);
+    if ($lengthErrors) {
+        throw new InvalidArgumentException($lengthErrors[0]);
+    }
+
+    $existing = findMedicineByName($pdo, $name);
+    if ($existing !== null) {
+        throw new InvalidArgumentException(
+            (int) ($existing['IsArchived'] ?? 0) === 1
+                ? $existing['Name'] . ' already exists in Archived medicines. Restore it instead of adding it again.'
+                : $existing['Name'] . ' already exists in the inventory. Use Add stock to increase its quantity.'
+        );
     }
 
     $stmt = $pdo->prepare(
@@ -973,6 +1103,14 @@ function createMedicine(PDO $pdo, array $data, int $adminId): void
         $threshold,
         $adminId,
     ]);
+    auditLog($pdo, 'inventory', 'inventory.medicine_added', 'Added medicine ' . $name . ' with opening stock of ' . $stock . '.', ['subject_role' => null]);
+}
+
+function medicineNameById(PDO $pdo, int $medicineId): string
+{
+    $stmt = $pdo->prepare('SELECT Name FROM Medicines WHERE MedicineID = ?');
+    $stmt->execute([$medicineId]);
+    return (string) ($stmt->fetchColumn() ?: 'medicine #' . $medicineId);
 }
 
 function addMedicineStock(PDO $pdo, int $medicineId, int $quantity): void
@@ -984,27 +1122,54 @@ function addMedicineStock(PDO $pdo, int $medicineId, int $quantity): void
         throw new InvalidArgumentException('Choose a medicine and enter a quantity from 1 to 999999.');
     }
 
-    $stmt = $pdo->prepare("UPDATE Medicines SET Stock = Stock + ? WHERE MedicineID = ?");
+    $sql = 'UPDATE Medicines SET Stock = Stock + ? WHERE MedicineID = ?';
+    if (medicineArchiveInstalled($pdo)) {
+        $sql .= ' AND IsArchived = 0';
+    }
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([$quantity, $medicineId]);
     if ($stmt->rowCount() === 0) {
         throw new InvalidArgumentException('The selected medicine was not found.');
     }
+    auditLog($pdo, 'inventory', 'inventory.stock_added', 'Added ' . $quantity . ' unit(s) of stock to ' . medicineNameById($pdo, $medicineId) . '.', ['subject_role' => null]);
 }
 
-function deleteMedicine(PDO $pdo, int $medicineId): void
+function archiveMedicine(PDO $pdo, int $medicineId): void
 {
-    if (!databaseTableExists($pdo, 'Medicines')) {
-        throw new RuntimeException('Medicine inventory storage is not installed.');
+    if (!databaseTableExists($pdo, 'Medicines') || !medicineArchiveInstalled($pdo)) {
+        throw new RuntimeException('Medicine archiving is not installed. Run the medicine archive migration first.');
     }
     if ($medicineId <= 0) {
-        throw new InvalidArgumentException('Choose a valid medicine to delete.');
+        throw new InvalidArgumentException('Choose a valid medicine to archive.');
     }
 
-    $stmt = $pdo->prepare('DELETE FROM Medicines WHERE MedicineID = ?');
+    $stmt = $pdo->prepare(
+        'UPDATE Medicines SET IsArchived = 1, ArchivedAt = NOW() WHERE MedicineID = ? AND IsArchived = 0'
+    );
     $stmt->execute([$medicineId]);
     if ($stmt->rowCount() === 0) {
-        throw new InvalidArgumentException('The selected medicine was not found.');
+        throw new InvalidArgumentException('The selected medicine was not found or is already archived.');
     }
+    auditLog($pdo, 'inventory', 'inventory.medicine_archived', 'Archived medicine ' . medicineNameById($pdo, $medicineId) . '.', ['subject_role' => null]);
+}
+
+function restoreMedicine(PDO $pdo, int $medicineId): void
+{
+    if (!databaseTableExists($pdo, 'Medicines') || !medicineArchiveInstalled($pdo)) {
+        throw new RuntimeException('Medicine archiving is not installed. Run the medicine archive migration first.');
+    }
+    if ($medicineId <= 0) {
+        throw new InvalidArgumentException('Choose a valid medicine to restore.');
+    }
+
+    $stmt = $pdo->prepare(
+        'UPDATE Medicines SET IsArchived = 0, ArchivedAt = NULL WHERE MedicineID = ? AND IsArchived = 1'
+    );
+    $stmt->execute([$medicineId]);
+    if ($stmt->rowCount() === 0) {
+        throw new InvalidArgumentException('The selected medicine was not found in the archive.');
+    }
+    auditLog($pdo, 'inventory', 'inventory.medicine_restored', 'Restored medicine ' . medicineNameById($pdo, $medicineId) . ' from the archive.', ['subject_role' => null]);
 }
 
 function ensureChatConversation(PDO $pdo, int $studentId): void
@@ -1054,22 +1219,6 @@ function validateEmail(string $email, array &$errors): void
     } elseif ($email !== '' && !str_ends_with(strtolower($email), '@' . $allowed_domain)) {
         $errors[] = "Email must be a @$allowed_domain address.";
     }
-}
-
-function generateTempPassword(int $length = 10): string
-{
-    // Unambiguous characters only (no 0/O, 1/l/I) so the password is easy to relay.
-    $chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-    $out = '';
-    for ($i = 0; $i < $length; $i++) {
-        $out .= $chars[random_int(0, strlen($chars) - 1)];
-    }
-    return $out;
-}
-
-function displayValue(?string $val): string
-{
-    return htmlspecialchars($val ?? '') ?: '—';
 }
 
 function consentChoiceMarks(mixed $value): string
@@ -1230,15 +1379,6 @@ function fetchChatThreads(PDO $pdo): array
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function countUnreadChatForStudent(PDO $pdo, int $studentId): int
-{
-    $stmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM Messages WHERE StudentID = ? AND SenderRole = 'admin' AND IsRead = 0"
-    );
-    $stmt->execute([$studentId]);
-    return (int) $stmt->fetchColumn();
-}
-
 function countUnreadChatForAdmin(PDO $pdo): int
 {
     $stmt = $pdo->query(
@@ -1388,4 +1528,356 @@ function chatQueueStatus(PDO $pdo): array
         'position'     => $allowed ? null : chatQueuePosition($pdo),
         'return_url'   => chatReturnPath(),
     ];
+}
+
+function auditCategories(): array
+{
+    return [
+        'security'     => 'Sign-in & security',
+        'account'      => 'Account',
+        'clinic_form'  => 'Clinic form',
+        'students'     => 'Student records',
+        'visits'       => 'Clinic visits',
+        'inventory'    => 'Medicine inventory',
+        'nurses'       => 'Nurses',
+        'announcements'=> 'Announcements',
+        'messages'     => 'Messages',
+    ];
+}
+
+function auditAccountName(PDO $pdo, ?string $role, ?int $id): ?string
+{
+    static $cache = [];
+    if ($id === null || !in_array($role, ['admin', 'student'], true)) {
+        return null;
+    }
+    $key = $role . ':' . $id;
+    if (!array_key_exists($key, $cache)) {
+        $stmt = $role === 'admin'
+            ? $pdo->prepare("SELECT COALESCE(NULLIF(FullName, ''), Username) FROM Admins WHERE AdminID = ?")
+            : $pdo->prepare("SELECT CONCAT(FirstName, ' ', LastName) FROM Students WHERE StudentID = ?");
+        $stmt->execute([$id]);
+        $name = $stmt->fetchColumn();
+        $cache[$key] = $name === false ? null : (string) $name;
+    }
+    return $cache[$key];
+}
+
+/**
+ * Records an audit event. The subject (the account the event concerns) defaults to the actor;
+ * pass 'subject_role' => null for events that don't belong to one account (e.g. inventory).
+ * Never throws, so a logging problem can't break the action being audited.
+ */
+function auditLog(PDO $pdo, string $category, string $action, string $description, array $context = []): void
+{
+    try {
+        if (!databaseTableExists($pdo, 'AuditLogs')) {
+            return;
+        }
+
+        $actorRole = $context['actor_role'] ?? ($_SESSION['role'] ?? 'guest');
+        $actorRole = in_array($actorRole, ['admin', 'student', 'guest'], true) ? $actorRole : 'guest';
+        $actorId = array_key_exists('actor_id', $context)
+            ? $context['actor_id']
+            : (isset($_SESSION['user_id']) && $actorRole !== 'guest' ? (int) $_SESSION['user_id'] : null);
+        $actorName = $context['actor_name']
+            ?? auditAccountName($pdo, $actorRole, $actorId)
+            ?? ($actorRole === 'guest' ? 'Unknown visitor' : ucfirst($actorRole));
+
+        if (array_key_exists('subject_role', $context)) {
+            $subjectRole = $context['subject_role'];
+            $subjectId = $context['subject_id'] ?? null;
+        } else {
+            $subjectRole = $actorRole !== 'guest' ? $actorRole : null;
+            $subjectId = $subjectRole !== null ? $actorId : null;
+        }
+        $subjectName = $context['subject_name'] ?? auditAccountName($pdo, $subjectRole, $subjectId);
+
+        $stmt = $pdo->prepare(
+            "INSERT INTO AuditLogs
+             (ActorRole, ActorID, ActorName, SubjectRole, SubjectID, SubjectName, Category, Action, Description, IPAddress, UserAgent)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        $stmt->execute([
+            $actorRole,
+            $actorId,
+            mb_substr($actorName, 0, 150),
+            $subjectRole,
+            $subjectId,
+            $subjectName !== null ? mb_substr($subjectName, 0, 150) : null,
+            $category,
+            $action,
+            mb_substr($description, 0, 500),
+            mb_substr((string) ($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45) ?: null,
+            mb_substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255) ?: null,
+        ]);
+    } catch (Throwable $error) {
+        error_log('Audit log write failed: ' . $error->getMessage());
+    }
+}
+
+/** Returns the labels of fields whose values differ between $before and $after (values are not recorded). */
+function auditChangedFields(array $before, array $after, array $labels): array
+{
+    $changed = [];
+    foreach ($labels as $key => $label) {
+        if (trim((string) ($before[$key] ?? '')) !== trim((string) ($after[$key] ?? ''))) {
+            $changed[] = $label;
+        }
+    }
+    return $changed;
+}
+
+function auditLogWhere(array $filters): array
+{
+    $where = [];
+    $params = [];
+
+    if (!empty($filters['subject_role']) && isset($filters['subject_id'])) {
+        $where[] = 'SubjectRole = ? AND SubjectID = ?';
+        array_push($params, $filters['subject_role'], (int) $filters['subject_id']);
+    }
+    if (isset($filters['involving_admin_id'])) {
+        $where[] = "((ActorRole = 'admin' AND ActorID = ?) OR (SubjectRole = 'admin' AND SubjectID = ?))";
+        array_push($params, (int) $filters['involving_admin_id'], (int) $filters['involving_admin_id']);
+    }
+    if (!empty($filters['category']) && array_key_exists($filters['category'], auditCategories())) {
+        $where[] = 'Category = ?';
+        $params[] = $filters['category'];
+    }
+    if (!empty($filters['search'])) {
+        $where[] = '(Description LIKE ? OR ActorName LIKE ? OR SubjectName LIKE ? OR IPAddress LIKE ?)';
+        $term = '%' . $filters['search'] . '%';
+        array_push($params, $term, $term, $term, $term);
+    }
+    if (!empty($filters['date_from'])) {
+        $where[] = 'CreatedAt >= ?';
+        $params[] = $filters['date_from'] . ' 00:00:00';
+    }
+    if (!empty($filters['date_to'])) {
+        $where[] = 'CreatedAt <= ?';
+        $params[] = $filters['date_to'] . ' 23:59:59';
+    }
+
+    return [$where ? ' WHERE ' . implode(' AND ', $where) : '', $params];
+}
+
+/** Students the admin can pick in the Audit Log, including deleted students that still have history. */
+function auditStudentAccounts(PDO $pdo): array
+{
+    $accounts = [];
+    foreach ($pdo->query("SELECT StudentID, CONCAT(LastName, ', ', FirstName) AS Name FROM Students ORDER BY LastName, FirstName") as $row) {
+        $accounts[(int) $row['StudentID']] = $row['Name'];
+    }
+    if (databaseTableExists($pdo, 'AuditLogs')) {
+        $history = $pdo->query(
+            "SELECT SubjectID, MAX(SubjectName) AS Name FROM AuditLogs
+             WHERE SubjectRole = 'student' AND SubjectID IS NOT NULL GROUP BY SubjectID"
+        );
+        foreach ($history as $row) {
+            if (!isset($accounts[(int) $row['SubjectID']])) {
+                $accounts[(int) $row['SubjectID']] = ($row['Name'] ?: 'Student') . ' (deleted)';
+            }
+        }
+    }
+    return $accounts;
+}
+
+function countAuditLogs(PDO $pdo, array $filters = []): int
+{
+    if (!databaseTableExists($pdo, 'AuditLogs')) {
+        return 0;
+    }
+    [$whereSql, $params] = auditLogWhere($filters);
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM AuditLogs' . $whereSql);
+    $stmt->execute($params);
+    return (int) $stmt->fetchColumn();
+}
+
+function fetchAuditLogs(PDO $pdo, array $filters = [], int $limit = 50, int $offset = 0): array
+{
+    if (!databaseTableExists($pdo, 'AuditLogs')) {
+        return [];
+    }
+    [$whereSql, $params] = auditLogWhere($filters);
+    $stmt = $pdo->prepare(
+        'SELECT * FROM AuditLogs' . $whereSql
+        . ' ORDER BY CreatedAt DESC, AuditLogID DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset)
+    );
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Reads and validates the Audit Log filters from the query string. */
+function auditLogRequestFilters(): array
+{
+    $validDate = static function (string $value): string {
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        return $date && $date->format('Y-m-d') === $value ? $value : '';
+    };
+    $category = (string) ($_GET['category'] ?? '');
+    // Admin-only account selector: '' (all), 'mine', or 'student:<id>'. Ignored on the student page.
+    $account = (string) ($_GET['account'] ?? '');
+    if ($account !== 'mine' && !preg_match('/^student:\d{1,10}$/', $account)) {
+        $account = '';
+    }
+
+    return [
+        'search'    => mb_substr(trim((string) ($_GET['search'] ?? '')), 0, 100),
+        'category'  => array_key_exists($category, auditCategories()) ? $category : '',
+        'account'   => $account,
+        'date_from' => $validDate(trim((string) ($_GET['date_from'] ?? ''))),
+        'date_to'   => $validDate(trim((string) ($_GET['date_to'] ?? ''))),
+    ];
+}
+
+// Philippine mobile numbers: exactly 11 digits starting with 09 (e.g. 09171234567).
+// Spaces and dashes are tolerated on input and removed before storing.
+function validateMobileNumber(string $value, string $label, array &$errors, bool $required = false): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        if ($required) {
+            $errors[] = $label . ' is required.';
+        }
+        return '';
+    }
+
+    $digits = preg_replace('/[\s\-]+/', '', $value);
+    if (!preg_match('/^09\d{9}$/', $digits)) {
+        $errors[] = $label . ' must be exactly 11 digits starting with 09 (e.g. 09171234567).';
+        return $value;
+    }
+    return $digits;
+}
+
+function mobileInputValue(?string $value): string
+{
+    return preg_replace('/[\s\-]+/', '', (string) $value);
+}
+
+/** Shared password policy for students and admins: 8+ characters with a number and a special character. */
+function validateNewPassword(string $password, array &$errors): void
+{
+    if (strlen($password) < 8) {
+        $errors[] = 'New password must be at least 8 characters.';
+    }
+    if (strlen($password) > 72) {
+        // bcrypt only uses the first 72 bytes.
+        $errors[] = 'New password must not exceed 72 characters.';
+    }
+    if (!preg_match('/\d/', $password)) {
+        $errors[] = 'New password must contain at least one number.';
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        $errors[] = 'New password must contain at least one special character.';
+    }
+}
+
+/**
+ * Adds an error for every value longer than its database column allows.
+ * $limits maps a key in $values to [label, max characters].
+ */
+function validateMaxLengths(array $values, array $limits, array &$errors): void
+{
+    foreach ($limits as $key => [$label, $max]) {
+        if (mb_strlen(trim((string) ($values[$key] ?? ''))) > $max) {
+            $errors[] = $label . ' must not exceed ' . $max . ' characters.';
+        }
+    }
+}
+
+/** Illnesses listed on FCAT School Clinic Form 01, in form order. */
+function clinicIllnessList(): array
+{
+    return [
+        'Asthma', 'Chicken Pox', 'Chronic Ear Infections or Otitis Media',
+        'Diabetes', 'Epilepsy', 'Fainting Spells', 'Febrile Convulsions',
+        'Heart Disorder', 'Hepatitis A', 'Hepatitis B',
+        'Measles', 'Meningitis', 'Mumps', 'Primary Complex',
+        'Rubella', 'Scoliosis', 'Skin Problems',
+        'Urinary Tract Infections', 'Whooping Cough', 'Others',
+    ];
+}
+
+/** Absolute path of a stored guardian ID image, or null if the stored path points outside the consent upload folder. */
+function consentImageAbsolutePath(?string $relativePath): ?string
+{
+    $normalizedPath = str_replace('\\', '/', ltrim((string) $relativePath, '/'));
+    if (!str_starts_with($normalizedPath, 'public/uploads/consent/') || str_contains($normalizedPath, '..')) {
+        return null;
+    }
+    $absolutePath = dirname(__DIR__, 2) . '/' . $normalizedPath;
+    return is_file($absolutePath) ? $absolutePath : null;
+}
+
+function deleteStoredConsentImage(?string $relativePath): void
+{
+    $absolutePath = consentImageAbsolutePath($relativePath);
+    if ($absolutePath !== null) {
+        unlink($absolutePath);
+    }
+}
+
+/** Streams a stored guardian ID image with safe headers, or returns false if it can't be served. */
+function streamConsentImage(?string $relativePath): bool
+{
+    $absolutePath = consentImageAbsolutePath($relativePath);
+    if ($absolutePath === null) {
+        return false;
+    }
+    $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+        return false;
+    }
+
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . filesize($absolutePath));
+    header('Cache-Control: private, no-store, max-age=0');
+    header('X-Content-Type-Options: nosniff');
+    readfile($absolutePath);
+    return true;
+}
+
+// Failed sign-ins allowed within LOGIN_LOCKOUT_MINUTES before sign-in is refused. The per-IP limit is high
+// because a school network often shares one public IP address across many students.
+const LOGIN_MAX_FAILURES_PER_ACCOUNT_AND_IP = 5;
+const LOGIN_MAX_FAILURES_PER_ACCOUNT = 10;
+const LOGIN_MAX_FAILURES_PER_IP = 30;
+const LOGIN_LOCKOUT_MINUTES = 15;
+
+/**
+ * True when sign-in should be refused for now because of too many recent failed attempts:
+ * against this account from this IP, against this account from anywhere, or from this IP overall.
+ * Counts come from the audit log, so throttling needs the AuditLogs table.
+ */
+function loginIsThrottled(PDO $pdo, ?string $targetRole, ?int $targetId): bool
+{
+    if (!databaseTableExists($pdo, 'AuditLogs')) {
+        return false;
+    }
+
+    $window = (int) LOGIN_LOCKOUT_MINUTES;
+    $recentFailures = static function (string $condition, array $params) use ($pdo, $window): int {
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM AuditLogs
+             WHERE Action = 'auth.login_failed' AND {$condition}
+               AND CreatedAt >= (NOW() - INTERVAL {$window} MINUTE)"
+        );
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
+    };
+
+    $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    $hasAccount = $targetRole !== null && $targetId !== null;
+
+    if ($hasAccount && $ip !== ''
+        && $recentFailures('SubjectRole = ? AND SubjectID = ? AND IPAddress = ?', [$targetRole, $targetId, $ip]) >= LOGIN_MAX_FAILURES_PER_ACCOUNT_AND_IP) {
+        return true;
+    }
+    if ($hasAccount
+        && $recentFailures('SubjectRole = ? AND SubjectID = ?', [$targetRole, $targetId]) >= LOGIN_MAX_FAILURES_PER_ACCOUNT) {
+        return true;
+    }
+    return $ip !== '' && $recentFailures('IPAddress = ?', [$ip]) >= LOGIN_MAX_FAILURES_PER_IP;
 }

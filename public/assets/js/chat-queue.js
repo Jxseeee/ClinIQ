@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     position.textContent = data.position;
                 }
             })
-            .catch(function () { /* the full-page refresh remains as fallback */ })
+            .catch(function () { /* the next scheduled check retries */ })
             .finally(function () {
                 isChecking = false;
                 scheduleNextCheck();

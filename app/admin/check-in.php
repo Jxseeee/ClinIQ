@@ -27,12 +27,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Follow-up date must be between today and 30 days ahead.');
                 }
             }
-            createClinicCheckIn($pdo, $selectedType, $selectedId, (int) $_SESSION['user_id'], $_POST);
+            $checkInId = createClinicCheckIn($pdo, $selectedType, $selectedId, (int) $_SESSION['user_id'], $_POST);
+            $checkedInAt = $pdo->prepare('SELECT CheckedInAt FROM ClinicCheckIns WHERE CheckInID = ?');
+            $checkedInAt->execute([$checkInId]);
+            $_SESSION['checkin_flash_time'] = (string) $checkedInAt->fetchColumn();
             header('Location: check-in.php?success=checked_in');
             exit;
         }
         if ($action === 'check_out') {
-            checkOutClinicCheckIn($pdo, (int) ($_POST['check_in_id'] ?? 0));
+            $_SESSION['checkin_flash_time'] = checkOutClinicCheckIn($pdo, (int) ($_POST['check_in_id'] ?? 0));
             header('Location: check-in.php?success=checked_out');
             exit;
         }
@@ -54,9 +57,13 @@ $medicines = fetchMedicines($pdo);
 $personVisits = $selectedPerson
     ? fetchClinicVisitsForPerson($pdo, $selectedType, $selectedId)
     : [];
+$flashTime = !empty($_SESSION['checkin_flash_time'])
+    ? ' at ' . date('g:i A', strtotime($_SESSION['checkin_flash_time']))
+    : '';
+unset($_SESSION['checkin_flash_time']);
 $successMessages = [
-    'checked_in' => 'Check-in added. The person is now listed as currently in clinic.',
-    'checked_out' => 'Check-out completed. Clinic occupancy has been updated.',
+    'checked_in' => 'Checked in' . $flashTime . '. The person is now listed as currently in clinic.',
+    'checked_out' => 'Checked out' . $flashTime . '. Clinic occupancy has been updated.',
 ];
 $successMessage = $successMessages[(string) ($_GET['success'] ?? '')] ?? '';
 
@@ -132,21 +139,21 @@ $adminBreadcrumbTrail = ['Check In'];
                             <input type="hidden" name="person_type" value="<?= htmlspecialchars($selectedType) ?>">
                             <input type="hidden" name="person_id" value="<?= $selectedId ?>">
                             <div class="form-row form-row-2">
-                                <div class="form-group"><label for="complaint">Complaint *</label><textarea id="complaint" name="complaint" rows="3" required><?= htmlspecialchars($_POST['complaint'] ?? '') ?></textarea></div>
-                                <div class="form-group"><label for="vitals">Vitals</label><textarea id="vitals" name="vitals" rows="3" placeholder="BP, temperature, pulse, etc."><?= htmlspecialchars($_POST['vitals'] ?? '') ?></textarea></div>
+                                <div class="form-group"><label for="complaint">Complaint *</label><textarea id="complaint" name="complaint" rows="3" maxlength="2000" required><?= htmlspecialchars($_POST['complaint'] ?? '') ?></textarea></div>
+                                <div class="form-group"><label for="vitals">Vitals</label><textarea id="vitals" name="vitals" rows="3" maxlength="255" placeholder="BP, temperature, pulse, etc."><?= htmlspecialchars($_POST['vitals'] ?? '') ?></textarea></div>
                             </div>
                             <div class="form-row form-row-2">
-                                <div class="form-group"><label for="assessment">Assessment</label><textarea id="assessment" name="assessment" rows="3"><?= htmlspecialchars($_POST['assessment'] ?? '') ?></textarea></div>
-                                <div class="form-group"><label for="treatment">Treatment</label><textarea id="treatment" name="treatment" rows="3"><?= htmlspecialchars($_POST['treatment'] ?? '') ?></textarea></div>
+                                <div class="form-group"><label for="assessment">Assessment</label><textarea id="assessment" name="assessment" rows="3" maxlength="5000"><?= htmlspecialchars($_POST['assessment'] ?? '') ?></textarea></div>
+                                <div class="form-group"><label for="treatment">Treatment</label><textarea id="treatment" name="treatment" rows="3" maxlength="5000"><?= htmlspecialchars($_POST['treatment'] ?? '') ?></textarea></div>
                             </div>
                             <div class="form-row form-row-3">
                                 <div class="form-group"><label for="medicine_id">Medicine given</label><select id="medicine_id" name="medicine_id" data-checkin-medicine><option value="" data-stock="0">No medicine</option><?php foreach ($medicines as $medicine): ?><?php $medicineStock = (int) $medicine['Stock']; ?><option value="<?= (int) $medicine['MedicineID'] ?>" data-stock="<?= $medicineStock ?>" <?= (int) ($_POST['medicine_id'] ?? 0) === (int) $medicine['MedicineID'] ? 'selected' : '' ?> <?= $medicineStock > 0 ? '' : 'disabled' ?>><?= htmlspecialchars($medicine['Name']) ?> — <?= $medicineStock > 0 ? $medicineStock . ' in stock' : 'Out of stock' ?></option><?php endforeach; ?></select></div>
                                 <div class="form-group"><label for="medicine_dosage">Dosage given</label><input type="text" id="medicine_dosage" name="medicine_dosage" value="<?= htmlspecialchars($_POST['medicine_dosage'] ?? '') ?>" placeholder="e.g. 500 mg, one tablet" maxlength="120" data-checkin-medicine-dosage></div>
-                                <div class="form-group"><label for="medicine_quantity">Quantity given</label><input type="number" id="medicine_quantity" name="medicine_quantity" value="<?= htmlspecialchars($_POST['medicine_quantity'] ?? '') ?>" min="1" max="999999" step="1" inputmode="numeric" placeholder="Units dispensed" data-checkin-medicine-quantity></div>
+                                <div class="form-group"><label for="medicine_quantity">Quantity given</label><input type="text" id="medicine_quantity" name="medicine_quantity" value="<?= htmlspecialchars(preg_replace('/\D/', '', (string) ($_POST['medicine_quantity'] ?? ''))) ?>" class="integer-input" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="Whole number of units, e.g. 2" placeholder="Units dispensed" autocomplete="off" data-checkin-medicine-quantity></div>
                             </div>
                             <div class="form-row form-row-3">
                                 <div class="form-group"><label for="status">Status</label><select id="status" name="status"><option value="open">Open</option><option value="completed">Completed</option><option value="follow-up">Follow-up</option></select></div>
-                                <div class="form-group"><label for="disposition">Disposition</label><input type="text" id="disposition" name="disposition" value="<?= htmlspecialchars($_POST['disposition'] ?? '') ?>" placeholder="Returned to class, sent home, etc."></div>
+                                <div class="form-group"><label for="disposition">Disposition</label><input type="text" id="disposition" name="disposition" maxlength="100" value="<?= htmlspecialchars($_POST['disposition'] ?? '') ?>" placeholder="Returned to class, sent home, etc."></div>
                                 <div class="form-group"><label for="follow_up_date">Follow-up date</label><input type="date" id="follow_up_date" name="follow_up_date" min="<?= $minimumFollowUpDate->format('Y-m-d') ?>" max="<?= $maximumFollowUpDate->format('Y-m-d') ?>" value="<?= htmlspecialchars($_POST['follow_up_date'] ?? '') ?>"></div>
                             </div>
                             <button type="submit" class="btn btn-success checkin-submit">Check In</button>
@@ -155,7 +162,7 @@ $adminBreadcrumbTrail = ['Check In'];
 
                     <section class="checkin-panel">
                         <div class="checkin-section-heading"><span><?= studentDashboardIcon('records') ?></span><div><h2>Visit records</h2><p>Previous clinic visits for <?= htmlspecialchars($selectedPerson['DisplayName']) ?>.</p></div></div>
-                        <?php if ($personVisits): ?><div class="checkin-history-list"><?php foreach ($personVisits as $visit): ?><article><div><strong><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></strong><p><?= htmlspecialchars($visit['Complaint']) ?></p><?php if ($visit['MedicineGiven']): ?><small><?= htmlspecialchars($visit['MedicineGiven']) ?><?= $visit['MedicineDosage'] ? ' · ' . htmlspecialchars($visit['MedicineDosage']) : '' ?><?= !empty($visit['MedicineQuantity']) ? ' · Qty ' . (int) $visit['MedicineQuantity'] : '' ?></small><?php endif; ?></div><span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span></article><?php endforeach; ?></div><?php else: ?><div class="checkin-empty">No previous clinic visits.</div><?php endif; ?>
+                        <?php if ($personVisits): ?><div class="checkin-history-list"><?php foreach ($personVisits as $visit): ?><article><div><strong><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?></strong><?= visitTimesHtml($visit) ?><p><?= htmlspecialchars($visit['Complaint']) ?></p><?php if ($visit['MedicineGiven']): ?><small><?= htmlspecialchars($visit['MedicineGiven']) ?><?= $visit['MedicineDosage'] ? ' · ' . htmlspecialchars($visit['MedicineDosage']) : '' ?><?= !empty($visit['MedicineQuantity']) ? ' · Qty ' . (int) $visit['MedicineQuantity'] : '' ?></small><?php endif; ?></div><span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span></article><?php endforeach; ?></div><?php else: ?><div class="checkin-empty">No previous clinic visits.</div><?php endif; ?>
                     </section>
                 <?php endif; ?>
             </main>
@@ -167,7 +174,7 @@ $adminBreadcrumbTrail = ['Check In'];
                         <?php foreach ($activeCheckIns as $checkIn): ?>
                             <article class="checkin-current-person">
                                 <span><?= studentDashboardIcon($checkIn['PersonType'] === 'student' ? 'user' : 'settings') ?></span>
-                                <div><strong><?= htmlspecialchars($checkIn['DisplayName']) ?></strong><small><?= htmlspecialchars($checkIn['Details']) ?></small><time><?= date('g:i A', strtotime($checkIn['CheckedInAt'])) ?></time></div>
+                                <div><strong><?= htmlspecialchars($checkIn['DisplayName']) ?></strong><small><?= htmlspecialchars($checkIn['Details']) ?></small><time datetime="<?= date('c', strtotime($checkIn['CheckedInAt'])) ?>">Time in <?= date('g:i A', strtotime($checkIn['CheckedInAt'])) ?></time></div>
                                 <form method="POST"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>"><input type="hidden" name="action" value="check_out"><input type="hidden" name="check_in_id" value="<?= (int) $checkIn['CheckInID'] ?>"><button type="submit" class="btn btn-secondary">Check Out</button></form>
                             </article>
                         <?php endforeach; ?>

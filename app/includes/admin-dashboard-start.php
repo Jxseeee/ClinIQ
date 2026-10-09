@@ -20,8 +20,9 @@ $adminActivePage = match ($currentPage) {
     'reports.php' => 'reports.php',
     'nurses.php' => 'nurses.php',
     'check-in.php' => 'check-in.php',
-    'announcements.php', 'add-announcement.php', 'edit-announcement.php' => 'announcements.php',
+    'announcements.php', 'add-announcement.php' => 'announcements.php',
     'messages.php' => 'messages.php',
+    'audit-log.php' => 'audit-log.php',
     'change-password.php' => 'settings.php',
     default => 'index.php',
 };
@@ -30,8 +31,8 @@ $adminContentClass = $adminContentClass ?? '';
 
 // Allow the including page to pre-compute $adminUnread to avoid a second query.
 $adminUnread = $adminUnread ?? countUnreadChatForAdmin($pdo);
-$adminNotificationCount = countUnreadNotifications($pdo, 'admin');
-$adminNotifications = fetchNotifications($pdo, 'admin');
+$adminNotificationCount = countUnreadNotifications($pdo, 'admin', $adminId);
+$adminNotifications = fetchNotifications($pdo, 'admin', $adminId);
 
 $adminNavItems = [
     'index.php'         => ['Dashboard',     'dashboard', $basePath . '/public/index.php'],
@@ -41,6 +42,7 @@ $adminNavItems = [
     'students.php'      => ['Students',      'records',   $basePath . '/app/admin/students.php'],
     'announcements.php' => ['Announcements', 'megaphone', $basePath . '/app/admin/announcements.php'],
     'messages.php'      => ['Messages',      'message',   $basePath . '/app/admin/messages.php'],
+    'audit-log.php'     => ['Audit Log',     'audit',     $basePath . '/app/admin/audit-log.php'],
 ];
 $adminPageIcon = $adminActivePage === 'settings.php'
     ? 'settings'
@@ -75,7 +77,7 @@ $adminPageIcon = $adminActivePage === 'settings.php'
             <span class="student-nav-icon"><?= studentDashboardIcon('settings') ?></span>
             <span class="student-nav-label">Settings</span>
         </a>
-        <a href="<?= $basePath ?>/public/logout.php" class="student-mobile-only">
+        <a href="<?= $basePath ?>/public/logout.php?token=<?= htmlspecialchars(csrfToken()) ?>" class="student-mobile-only">
             <span class="student-nav-icon"><?= studentDashboardIcon('logout') ?></span>
             <span class="student-nav-label">Log out</span>
         </a>
@@ -99,7 +101,7 @@ $adminPageIcon = $adminActivePage === 'settings.php'
             <span class="student-nav-icon"><?= studentDashboardIcon('settings') ?></span>
             <span class="student-nav-label">Settings</span>
         </a>
-        <a href="<?= $basePath ?>/public/logout.php">
+        <a href="<?= $basePath ?>/public/logout.php?token=<?= htmlspecialchars(csrfToken()) ?>">
             <span class="student-nav-icon"><?= studentDashboardIcon('logout') ?></span>
             <span class="student-nav-label">Log out</span>
         </a>

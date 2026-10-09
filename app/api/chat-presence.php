@@ -12,9 +12,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if ($_SESSION['role'] === 'student' && studentMustChangePassword()) {
+if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
     http_response_code(403);
-    echo json_encode(['error' => 'Password change required']);
+    echo json_encode(['error' => 'Complete your clinic form before using chat.']);
     exit;
 }
 
