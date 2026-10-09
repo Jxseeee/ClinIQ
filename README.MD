@@ -264,6 +264,8 @@ New student accounts are created by admins only. Admin-created students use the 
 - PHP and MySQL both use `APP_TIMEZONE` from `.env` (default `Asia/Manila`), so timestamps stay correct on servers running in UTC
 - `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls
 - The nurses-on-duty dashboard count is derived from active nurse toggles and cannot be edited manually
+- Turning a nurse on duty opens a popup to choose the campus (FCAT - Main, FCAT - Re Chico, FCAT - Pinagbarilan, FCAT - La Rosa); turning them off clears it. Adding a nurse as on duty also requires a campus. The campus is stored in `Nurses.DutyCampus` (added automatically if `add_nurse_duty_campus.sql` hasn't been run) and recorded in the audit log
+- The student dashboard has a "Nurses on duty by campus" panel showing, for every campus, whether a nurse is available and who is on duty there (admins manage this from the Nurses page)
 - Clinic occupancy is derived from active check-ins and cannot be edited manually
 - Admin and student occupancy cards are read-only and reflect the same live value
 

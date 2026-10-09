@@ -17,7 +17,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
     try {
         if ($action === 'create_check_in') {
+            // A follow-up date only applies to follow-up visits: required for them, discarded for any other status.
             $followUpValue = trim((string) ($_POST['follow_up_date'] ?? ''));
+            if (($_POST['status'] ?? '') !== 'follow-up') {
+                $followUpValue = '';
+                $_POST['follow_up_date'] = '';
+            } elseif ($followUpValue === '') {
+                throw new InvalidArgumentException('Choose a follow-up date for a follow-up visit.');
+            }
             if ($followUpValue !== '') {
                 $followUpDate = DateTimeImmutable::createFromFormat('!Y-m-d', $followUpValue, $clinicTimezone);
                 if (!$followUpDate || $followUpDate->format('Y-m-d') !== $followUpValue) {
@@ -152,9 +159,9 @@ $adminBreadcrumbTrail = ['Check In'];
                                 <div class="form-group"><label for="medicine_quantity">Quantity given</label><input type="text" id="medicine_quantity" name="medicine_quantity" value="<?= htmlspecialchars(preg_replace('/\D/', '', (string) ($_POST['medicine_quantity'] ?? ''))) ?>" class="integer-input" inputmode="numeric" pattern="[1-9][0-9]{0,5}" maxlength="6" title="Whole number of units, e.g. 2" placeholder="Units dispensed" autocomplete="off" data-checkin-medicine-quantity></div>
                             </div>
                             <div class="form-row form-row-3">
-                                <div class="form-group"><label for="status">Status</label><select id="status" name="status"><option value="open">Open</option><option value="completed">Completed</option><option value="follow-up">Follow-up</option></select></div>
+                                <div class="form-group"><label for="status">Status</label><select id="status" name="status" data-checkin-status><?php foreach (['open' => 'Open', 'completed' => 'Completed', 'follow-up' => 'Follow-up'] as $statusValue => $statusLabel): ?><option value="<?= $statusValue ?>" <?= ($_POST['status'] ?? 'open') === $statusValue ? 'selected' : '' ?>><?= $statusLabel ?></option><?php endforeach; ?></select></div>
                                 <div class="form-group"><label for="disposition">Disposition</label><input type="text" id="disposition" name="disposition" maxlength="100" value="<?= htmlspecialchars($_POST['disposition'] ?? '') ?>" placeholder="Returned to class, sent home, etc."></div>
-                                <div class="form-group"><label for="follow_up_date">Follow-up date</label><input type="date" id="follow_up_date" name="follow_up_date" min="<?= $minimumFollowUpDate->format('Y-m-d') ?>" max="<?= $maximumFollowUpDate->format('Y-m-d') ?>" value="<?= htmlspecialchars($_POST['follow_up_date'] ?? '') ?>"></div>
+                                <?php $followUpEnabled = ($_POST['status'] ?? 'open') === 'follow-up'; ?><div class="form-group"><label for="follow_up_date">Follow-up date</label><input type="date" id="follow_up_date" name="follow_up_date" min="<?= $minimumFollowUpDate->format('Y-m-d') ?>" max="<?= $maximumFollowUpDate->format('Y-m-d') ?>" value="<?= $followUpEnabled ? htmlspecialchars($_POST['follow_up_date'] ?? '') : '' ?>" title="Set the status to Follow-up to choose a date" data-checkin-follow-up <?= $followUpEnabled ? 'required' : 'disabled' ?>></div>
                             </div>
                             <button type="submit" class="btn btn-success checkin-submit">Check In</button>
                         </form>

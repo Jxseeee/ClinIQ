@@ -25,7 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $course      = $f('course');
     $yearLevel   = $f('year_level');
-    $department   = $f('department');
+    // Department is never taken from the form: it is assigned from the chosen course.
+    $department   = clinicCourseDepartments()[$course] ?? '';
+    $_POST['department'] = $department;
     $dob         = $f('date_of_birth');
     $gender      = $f('gender');
     $streetAddress = $f('street_address');
@@ -49,8 +51,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stepThreeErrors = [];
 
     if ($course === '')      $stepOneErrors[] = 'Course is required.';
+    elseif (!in_array($course, clinicCourseOptions(), true)) $stepOneErrors[] = 'Please choose a course from the list.';
     if ($yearLevel === '')   $stepOneErrors[] = 'Year Level is required.';
-    if ($department === '')  $stepOneErrors[] = 'Department is required.';
     if ($dob === '') {
         $stepOneErrors[] = 'Date of Birth is required.';
     } else {
@@ -380,8 +382,14 @@ $studentContentClass = 'clinic-wizard-content';
             </div>
             <div class="form-row form-row-3">
                 <div class="form-group">
-                    <label>Course *</label>
-                    <input type="text" name="course" value="<?= $v('Course') ?>" placeholder="e.g. Bachelor of Science in Information Technology" required>
+                    <label for="course">Course *</label>
+                    <select id="course" name="course" required data-course-select
+                            data-course-departments="<?= htmlspecialchars(json_encode(clinicCourseDepartments())) ?>">
+                        <option value="">Select course</option>
+                        <?php foreach (clinicCourseOptions() as $courseOption): ?>
+                            <option value="<?= htmlspecialchars($courseOption) ?>" <?= $rawStudentValue('Course') === $courseOption ? 'selected' : '' ?>><?= htmlspecialchars($courseOption) ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Year Level *</label>
@@ -393,8 +401,12 @@ $studentContentClass = 'clinic-wizard-content';
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Department *</label>
-                    <input type="text" name="department" value="<?= $v('Department') ?>" placeholder="e.g. College of Computing" required>
+                    <label for="department">Department</label>
+                    <?php $selectedCourseDepartment = clinicCourseDepartments()[$rawStudentValue('Course')] ?? ''; ?>
+                    <input type="text" id="department" value="<?= htmlspecialchars($selectedCourseDepartment) ?>"
+                           placeholder="Assigned from your course" disabled data-course-department
+                           title="Department is assigned automatically from your course">
+                    <small class="text-muted">Assigned automatically from your course.</small>
                 </div>
             </div>
             <div class="form-row form-row-3">
@@ -529,7 +541,7 @@ $studentContentClass = 'clinic-wizard-content';
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g1_emergency_name" value="<?= $gv('g1_', $g1, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
+                        <input type="text" name="g1_emergency_name" value="<?= $gv('g1_', $g1, 'EmergencyContactName') ?>" placeholder="e.g. Reyes, Ana M.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>
@@ -577,7 +589,7 @@ $studentContentClass = 'clinic-wizard-content';
                     <p class="text-muted" style="margin-top:12px;">Emergency Contact (aside from above)</p>
                     <div class="form-group">
                         <label>Name</label>
-                        <input type="text" name="g2_emergency_name" value="<?= $gv('g2_', $g2, 'EmergencyContactName') ?>" placeholder="e.g. Sahur, TungTung S.">
+                        <input type="text" name="g2_emergency_name" value="<?= $gv('g2_', $g2, 'EmergencyContactName') ?>" placeholder="e.g. Reyes, Ana M.">
                     </div>
                     <div class="form-group">
                         <label>Mobile Number</label>

@@ -7,7 +7,6 @@ $studentId = (int) $_SESSION['user_id'];
 $user = currentUser();
 $data = fetchStudentFullProfile($pdo, $studentId);
 $student = $data['student'] ?? [];
-$medHistory = $data['medHistory'] ?? [];
 $announcements = fetchAnnouncements($pdo);
 $latestVisit = fetchClinicVisits($pdo, $studentId, 1)[0] ?? null;
 $clinicOccupancy = fetchClinicOccupancy($pdo);
@@ -19,16 +18,15 @@ $estimatedWait = $queueWaiting > 0
     : 'No wait';
 
 $totalVisits = countClinicVisits($pdo, $studentId);
-$lastVisit = !empty($student['CreatedAt']) ? date('F j, Y', strtotime($student['CreatedAt'])) : 'No record';
-$lastVisit = $latestVisit ? date('F j, Y', strtotime($latestVisit['CreatedAt'])) : $lastVisit;
-$lastIssue = $medHistory[0]['Illness'] ?? 'No record';
-$lastIssue = $latestVisit['Complaint'] ?? $lastIssue;
-$profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
+// The Health Snapshot reflects actual clinic visits only; a student with no visits shows "No record"
+// (not the account creation date or illnesses from the clinic form's past medical history).
+$lastVisit = $latestVisit ? date('F j, Y', strtotime($latestVisit['TimeIn'] ?? $latestVisit['CreatedAt'])) : 'No record';
+$lastIssue = $latestVisit ? (trim((string) $latestVisit['Complaint']) ?: 'No record') : 'No record';
 $clinicStatus = match ($latestVisit['Status'] ?? null) {
     'follow-up' => 'FOLLOW UP',
     'completed' => 'TREATED',
-    'open' => 'OPEN',
-    default => $profileComplete ? 'TREATED' : 'PENDING',
+    'open' => 'IN CLINIC',
+    default => 'No record',
 };
 $studentPageTitle = 'Dashboard';
 ?>
@@ -130,6 +128,8 @@ $studentPageTitle = 'Dashboard';
                 </section>
 
             </div>
+
+            <?php include __DIR__ . '/../app/includes/nurse-campus-availability.php'; ?>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
 
     <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>

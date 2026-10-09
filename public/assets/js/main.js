@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function () {
     initLiveSearch();
     initCheckInSearch();
     initCheckInMedicineFields();
+    initCheckInFollowUpDate();
     initPhoneFormatting();
     initPasswordToggle();
     initPasswordChecklist();
@@ -16,6 +17,7 @@ document.addEventListener('DOMContentLoaded', function () {
     initBirthDatePicker();
     initPastDateInputs();
     initClinicFormWizard();
+    initCourseDepartment();
     initMedicineCarousel();
     initReportDialogs();
     initMedicineDuplicateCheck();
@@ -228,6 +230,24 @@ function initCheckInSearch() {
 
     filterPeople();
     if (input.value.trim() !== '') setOpen(true);
+}
+
+// The follow-up date only applies to follow-up visits: enabled and required for them, cleared otherwise.
+function initCheckInFollowUpDate() {
+    var status = document.querySelector('[data-checkin-status]');
+    var followUp = document.querySelector('[data-checkin-follow-up]');
+    if (!status || !followUp) return;
+
+    function syncFollowUp() {
+        var isFollowUp = status.value === 'follow-up';
+        followUp.disabled = !isFollowUp;
+        followUp.required = isFollowUp;
+        followUp.title = isFollowUp ? '' : 'Set the status to Follow-up to choose a date';
+        if (!isFollowUp) followUp.value = '';
+    }
+
+    status.addEventListener('change', syncFollowUp);
+    syncFollowUp();
 }
 
 function initCheckInMedicineFields() {
@@ -495,9 +515,10 @@ function initNurseManagement() {
         });
     });
 
-    function updateDutyState(button, isOnDuty) {
+    function updateDutyState(button, isOnDuty, campus) {
         var row = button.closest('[data-nurse-row]');
         var status = row ? row.querySelector('[data-nurse-duty-status]') : null;
+        var campusLabel = row ? row.querySelector('[data-nurse-duty-campus]') : null;
         var value = button.closest('form').querySelector('[data-nurse-duty-value]');
 
         button.setAttribute('aria-checked', isOnDuty ? 'true' : 'false');
@@ -507,6 +528,11 @@ function initNurseManagement() {
             status.textContent = isOnDuty ? 'On duty' : 'Off duty';
             status.classList.toggle('is-on-duty', isOnDuty);
             status.classList.toggle('is-off-duty', !isOnDuty);
+        }
+        if (campusLabel) {
+            var campusName = campusLabel.querySelector('[data-nurse-duty-campus-name]');
+            if (campusName && typeof campus === 'string') campusName.textContent = campus;
+            campusLabel.hidden = !isOnDuty;
         }
     }
 
@@ -519,20 +545,70 @@ function initNurseManagement() {
         });
     }
 
+    // Turning a nurse on duty first asks which campus; turning them off happens immediately.
+    var campusDialog = page.querySelector('[data-nurse-campus-dialog]');
+    var campusForm = campusDialog ? campusDialog.querySelector('[data-nurse-campus-form]') : null;
+    var campusError = campusDialog ? campusDialog.querySelector('[data-nurse-campus-error]') : null;
+    var pendingDutyForm = null;
+
+    if (campusForm) {
+        campusForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            var choice = campusForm.querySelector('input[name="campus_choice"]:checked');
+            if (!choice) {
+                if (campusError) campusError.hidden = false;
+                return;
+            }
+            var dutyForm = pendingDutyForm;
+            pendingDutyForm = null;
+            closeDialog(campusDialog);
+            if (dutyForm) sendDutyUpdate(dutyForm, true, choice.value);
+        });
+        campusDialog.addEventListener('close', function () {
+            pendingDutyForm = null;
+        });
+    }
+
+    function askForCampus(form) {
+        var button = form.querySelector('[data-nurse-duty-toggle]');
+        pendingDutyForm = form;
+        campusForm.reset();
+        if (campusError) campusError.hidden = true;
+        var name = campusDialog.querySelector('[data-nurse-campus-name]');
+        if (name) name.textContent = (button && button.dataset.nurseName) || 'this nurse';
+        openDialog(campusDialog, button);
+    }
+
     page.querySelectorAll('[data-nurse-duty-form]').forEach(function (form) {
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             var button = form.querySelector('[data-nurse-duty-toggle]');
             if (!button || button.disabled) return;
 
+            var turningOn = button.getAttribute('aria-checked') !== 'true';
+            if (turningOn && campusDialog) {
+                askForCampus(form);
+                return;
+            }
+            sendDutyUpdate(form, turningOn, '');
+        });
+    });
+
+    function sendDutyUpdate(form, nextState, campus) {
+            var button = form.querySelector('[data-nurse-duty-toggle]');
+            if (!button || button.disabled) return;
+
             var currentState = button.getAttribute('aria-checked') === 'true';
-            var nextState = !currentState;
+            var row = button.closest('[data-nurse-row]');
+            var campusName = row ? row.querySelector('[data-nurse-duty-campus-name]') : null;
+            var previousCampus = campusName ? campusName.textContent : '';
             var body = new FormData(form);
             body.set('is_on_duty', nextState ? '1' : '0');
+            body.set('duty_campus', nextState ? campus : '');
 
             button.disabled = true;
             button.setAttribute('aria-busy', 'true');
-            updateDutyState(button, nextState);
+            updateDutyState(button, nextState, nextState ? campus : '');
             if (ajaxAlert) ajaxAlert.hidden = true;
 
             fetch(window.location.href, {
@@ -551,11 +627,11 @@ function initNurseManagement() {
                     return payload;
                 });
             }).then(function (payload) {
-                updateDutyState(button, Boolean(payload.isOnDuty));
+                updateDutyState(button, Boolean(payload.isOnDuty), payload.campus || '');
                 updateCount('[data-nurses-on-duty]', payload.onDutyCount);
                 updateCount('[data-nurses-off-duty]', payload.offDutyCount);
             }).catch(function (error) {
-                updateDutyState(button, currentState);
+                updateDutyState(button, currentState, previousCampus);
                 if (ajaxAlert) {
                     ajaxAlert.textContent = error.message;
                     ajaxAlert.hidden = false;
@@ -565,8 +641,22 @@ function initNurseManagement() {
                 button.disabled = false;
                 button.removeAttribute('aria-busy');
             });
-        });
-    });
+    }
+
+    // Add nurse: "Mark this nurse as on duty" reveals the campus choice and makes it required.
+    var addDuty = page.querySelector('[data-add-nurse-duty]');
+    var addCampus = page.querySelector('[data-add-nurse-campus]');
+    if (addDuty && addCampus) {
+        var syncAddCampus = function () {
+            addCampus.hidden = !addDuty.checked;
+            addCampus.querySelectorAll('input[type="radio"]').forEach(function (radio, index) {
+                radio.required = addDuty.checked && index === 0;
+                radio.disabled = !addDuty.checked;
+            });
+        };
+        addDuty.addEventListener('change', syncAddCampus);
+        syncAddCampus();
+    }
 }
 
 /* ── 4. Live search / filter ─────────────────────────── */
@@ -1058,6 +1148,27 @@ function initPastDateInputs() {
             event.preventDefault();
         });
     });
+}
+
+// Department isn't chosen by the student; it follows the selected course (the server assigns it the same way).
+function initCourseDepartment() {
+    var course = document.querySelector('[data-course-select]');
+    var department = document.querySelector('[data-course-department]');
+    if (!course || !department) return;
+
+    var departments = {};
+    try {
+        departments = JSON.parse(course.dataset.courseDepartments || '{}');
+    } catch (error) {
+        departments = {};
+    }
+
+    function syncDepartment() {
+        department.value = departments[course.value] || '';
+    }
+
+    course.addEventListener('change', syncDepartment);
+    syncDepartment();
 }
 
 function initClinicFormWizard() {

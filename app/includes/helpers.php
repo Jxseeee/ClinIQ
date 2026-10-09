@@ -22,7 +22,8 @@ function studentDashboardIcon(string $name): string
         'close'     => '<path d="m6 6 12 12"></path><path d="m18 6-12 12"></path>',
         'chevron-left' => '<path d="m15 18-6-6 6-6"></path>',
         'chevron-right' => '<path d="m9 6 6 6-6 6"></path>',
-        'audit'     => '<rect x="4.5" y="4" width="13" height="16.5" rx="2"></rect><path d="M8.5 4V2.75h5V4"></path><path d="M8 9h6"></path><path d="M8 12.5h3.5"></path><circle cx="17" cy="16.5" r="3.75"></circle><path d="M17 14.75v1.75l1.25 1"></path>',
+        'pin'       => '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"></path><circle cx="12" cy="10" r="2.4"></circle>',
+        'audit'     =>'<rect x="4.5" y="4" width="13" height="16.5" rx="2"></rect><path d="M8.5 4V2.75h5V4"></path><path d="M8 9h6"></path><path d="M8 12.5h3.5"></path><circle cx="17" cy="16.5" r="3.75"></circle><path d="M17 14.75v1.75l1.25 1"></path>',
         'archive'   => '<rect x="3.5" y="4" width="17" height="4.5" rx="1"></rect><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10"></path><path d="M10 12.5h4"></path>',
         'restore'   => '<path d="M4 12a8 8 0 1 0 2.35-5.65"></path><path d="M4 4.5v4h4"></path><path d="M12 8v4l2.5 2"></path>',
         'trash'     =>'<path d="M4.5 7h15"></path><path d="M9 3.5h6L16 7H8l1-3.5Z"></path><path d="m7 7 .75 13.5h8.5L17 7"></path><path d="M10 11v5.5"></path><path d="M14 11v5.5"></path>',
@@ -734,7 +735,8 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
             $medicineQuantity,
             $status,
             trim((string) ($data['disposition'] ?? '')) ?: null,
-            trim((string) ($data['follow_up_date'] ?? '')) ?: null,
+            // Only follow-up visits keep a follow-up date.
+            $status === 'follow-up' ? (trim((string) ($data['follow_up_date'] ?? '')) ?: null) : null,
         ]);
         $visitId = (int) $pdo->lastInsertId();
 
@@ -840,14 +842,50 @@ function fetchClinicOccupancy(PDO $pdo): array
     ];
 }
 
+/** FCAT campuses a nurse can be on duty at. */
+function clinicCampuses(): array
+{
+    return ['FCAT - Main', 'FCAT - Re Chico', 'FCAT - Pinagbarilan', 'FCAT - La Rosa'];
+}
+
+// Adds Nurses.DutyCampus if the migration was never run, so duty toggles work on any copy of the database.
+function ensureNurseDutyCampusColumn(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = databaseColumnExists($pdo, 'Nurses', 'DutyCampus');
+            if (!$ready && databaseTableExists($pdo, 'Nurses')) {
+                $pdo->exec("ALTER TABLE Nurses ADD COLUMN DutyCampus VARCHAR(50) NULL AFTER IsOnDuty");
+                $ready = true;
+            }
+        } catch (PDOException $error) {
+            error_log('Could not add Nurses.DutyCampus: ' . $error->getMessage());
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
+/** Returns the campus if it is one of FCAT's campuses, otherwise throws. */
+function validateDutyCampus(?string $campus): string
+{
+    $campus = trim((string) $campus);
+    if (!in_array($campus, clinicCampuses(), true)) {
+        throw new InvalidArgumentException('Choose the campus where the nurse is on duty.');
+    }
+    return $campus;
+}
+
 function fetchNurses(PDO $pdo): array
 {
     if (!databaseTableExists($pdo, 'Nurses')) {
         return [];
     }
 
+    $campusColumn = ensureNurseDutyCampusColumn($pdo) ? 'DutyCampus' : 'NULL AS DutyCampus';
     return $pdo->query(
-        "SELECT NurseID, FullName, Position, LicenseNumber, IsOnDuty, CreatedAt, UpdatedAt
+        "SELECT NurseID, FullName, Position, LicenseNumber, IsOnDuty, {$campusColumn}, CreatedAt, UpdatedAt
          FROM Nurses
          ORDER BY IsOnDuty DESC, FullName ASC"
     )->fetchAll(PDO::FETCH_ASSOC);
@@ -886,13 +924,30 @@ function createNurse(PDO $pdo, array $data, int $adminId): int
 
     [$fullName, $position, $licenseNumber] = validateNurseData($data);
     $isOnDuty = (int) ($data['is_on_duty'] ?? 0) === 1 ? 1 : 0;
-    $stmt = $pdo->prepare(
-        "INSERT INTO Nurses (FullName, Position, LicenseNumber, IsOnDuty, CreatedByAdminID)
-         VALUES (?, ?, ?, ?, ?)"
-    );
-    $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $adminId]);
+    // A nurse added as on duty must be assigned to a campus.
+    $campus = $isOnDuty ? validateDutyCampus($data['duty_campus'] ?? null) : null;
+
+    if (ensureNurseDutyCampusColumn($pdo)) {
+        $stmt = $pdo->prepare(
+            "INSERT INTO Nurses (FullName, Position, LicenseNumber, IsOnDuty, DutyCampus, CreatedByAdminID)
+             VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $campus, $adminId]);
+    } else {
+        $stmt = $pdo->prepare(
+            "INSERT INTO Nurses (FullName, Position, LicenseNumber, IsOnDuty, CreatedByAdminID)
+             VALUES (?, ?, ?, ?, ?)"
+        );
+        $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $adminId]);
+    }
     $nurseId = (int) $pdo->lastInsertId();
-    auditLog($pdo, 'nurses', 'nurse.added', 'Added nurse ' . $fullName . ' (' . $position . ')' . ($isOnDuty ? ', on duty' : '') . '.', ['subject_role' => null]);
+    auditLog(
+        $pdo,
+        'nurses',
+        'nurse.added',
+        'Added nurse ' . $fullName . ' (' . $position . ')' . ($isOnDuty ? ', on duty at ' . $campus : '') . '.',
+        ['subject_role' => null]
+    );
     return $nurseId;
 }
 
@@ -921,7 +976,8 @@ function updateNurse(PDO $pdo, int $nurseId, array $data, int $adminId): void
     }
 }
 
-function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId): int
+/** Turning a nurse on duty requires a campus; turning them off clears it. Returns the on-duty count. */
+function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId, ?string $campus = null): int
 {
     if (!databaseTableExists($pdo, 'Nurses')) {
         throw new RuntimeException('Nurse directory storage is not installed.');
@@ -929,9 +985,15 @@ function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId
     if ($nurseId <= 0) {
         throw new InvalidArgumentException('Choose a valid nurse to update.');
     }
+    $campus = $isOnDuty ? validateDutyCampus($campus) : null;
 
-    $stmt = $pdo->prepare("UPDATE Nurses SET IsOnDuty = ? WHERE NurseID = ?");
-    $stmt->execute([$isOnDuty ? 1 : 0, $nurseId]);
+    if (ensureNurseDutyCampusColumn($pdo)) {
+        $stmt = $pdo->prepare("UPDATE Nurses SET IsOnDuty = ?, DutyCampus = ? WHERE NurseID = ?");
+        $stmt->execute([$isOnDuty ? 1 : 0, $campus, $nurseId]);
+    } else {
+        $stmt = $pdo->prepare("UPDATE Nurses SET IsOnDuty = ? WHERE NurseID = ?");
+        $stmt->execute([$isOnDuty ? 1 : 0, $nurseId]);
+    }
     if ($stmt->rowCount() === 0) {
         $exists = $pdo->prepare("SELECT COUNT(*) FROM Nurses WHERE NurseID = ?");
         $exists->execute([$nurseId]);
@@ -945,11 +1007,35 @@ function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId
             $pdo,
             'nurses',
             'nurse.duty_changed',
-            'Set nurse ' . $nurseName->fetchColumn() . ($isOnDuty ? ' on duty.' : ' off duty.'),
+            'Set nurse ' . $nurseName->fetchColumn() . ($isOnDuty ? ' on duty at ' . $campus . '.' : ' off duty.'),
             ['subject_role' => null]
         );
     }
     return countNursesOnDuty($pdo);
+}
+
+/**
+ * On-duty nurses grouped by campus, for the dashboards: one entry per FCAT campus
+ * with the nurses currently on duty there (an empty list means no nurse is available).
+ */
+function fetchNurseAvailabilityByCampus(PDO $pdo): array
+{
+    $availability = array_fill_keys(clinicCampuses(), []);
+    if (!databaseTableExists($pdo, 'Nurses') || !ensureNurseDutyCampusColumn($pdo)) {
+        return $availability;
+    }
+
+    $rows = $pdo->query(
+        "SELECT FullName, Position, DutyCampus FROM Nurses
+         WHERE IsOnDuty = 1
+         ORDER BY FullName ASC"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+        // Nurses put on duty before campuses were recorded are listed separately rather than hidden.
+        $campus = array_key_exists((string) $row['DutyCampus'], $availability) ? $row['DutyCampus'] : 'Campus not set';
+        $availability[$campus][] = $row;
+    }
+    return $availability;
 }
 
 function deleteNurse(PDO $pdo, int $nurseId, int $adminId): void
@@ -1785,6 +1871,29 @@ function validateMaxLengths(array $values, array $limits, array &$errors): void
             $errors[] = $label . ' must not exceed ' . $max . ' characters.';
         }
     }
+}
+
+/** Courses offered at FCAT and the department each belongs to; the clinic form fills Department from Course. */
+function clinicCourseDepartments(): array
+{
+    return [
+        'Bachelor of Science in Criminology'                 => 'College of Criminal Justice',
+//        'Bachelor of Science in Education'                   => 'College of Education',
+        'Bachelor of Secondary Education (Major in Science)' => 'College of Education',
+        'Bachelor of Elementary Education'                   => 'College of Education',
+        'Bachelor of Science in Computer Engineering'        => 'College of Computer Studies',
+        'Bachelor of Science in Computer Science'            => 'College of Computer Studies',
+        'Bachelor of Science in Hospitality and Management'  => 'College of Hospitality Management',
+        'Bachelor of Science in Accountancy'                 => 'College of Business Administration and Accountancy',
+        'Bachelor of Science in Business Administration'     => 'College of Business Administration and Accountancy',
+        'Bachelor of Science in Nursing'                     => 'College of Nursing',
+    ];
+}
+
+/** Courses offered at FCAT, shown as the Course choices on the clinic form. */
+function clinicCourseOptions(): array
+{
+    return array_keys(clinicCourseDepartments());
 }
 
 /** Illnesses listed on FCAT School Clinic Form 01, in form order. */

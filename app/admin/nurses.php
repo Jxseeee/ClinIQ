@@ -44,11 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($nurseAction === 'toggle_nurse_duty') {
             $nurseId = (int) ($_POST['nurse_id'] ?? 0);
             $isOnDuty = (int) ($_POST['is_on_duty'] ?? 0) === 1;
+            $dutyCampus = $isOnDuty ? (string) ($_POST['duty_campus'] ?? '') : null;
             $onDutyCount = setNurseDutyStatus(
                 $pdo,
                 $nurseId,
                 $isOnDuty,
-                (int) $_SESSION['user_id']
+                (int) $_SESSION['user_id'],
+                $dutyCampus
             );
 
             if ($isJsonRequest) {
@@ -57,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 echo json_encode([
                     'success' => true,
                     'isOnDuty' => $isOnDuty,
+                    'campus' => $isOnDuty ? $dutyCampus : null,
                     'onDutyCount' => $onDutyCount,
                     'offDutyCount' => max(0, $totalCount - $onDutyCount),
                 ]);
@@ -197,6 +200,10 @@ $adminBreadcrumbTrail = ['Nurses'];
                                         <span class="nurse-duty-status <?= $isOnDuty ? 'is-on-duty' : 'is-off-duty' ?>" data-nurse-duty-status>
                                             <?= $isOnDuty ? 'On duty' : 'Off duty' ?>
                                         </span>
+                                        <small class="nurse-duty-campus" data-nurse-duty-campus <?= $isOnDuty ? '' : 'hidden' ?>>
+                                            <?= studentDashboardIcon('pin') ?>
+                                            <span data-nurse-duty-campus-name><?= htmlspecialchars($isOnDuty ? ($nurse['DutyCampus'] ?: 'Campus not set') : '') ?></span>
+                                        </small>
                                     </td>
                                     <td data-label="Duty control">
                                         <form method="POST" class="nurse-duty-form" data-nurse-duty-form>
@@ -204,9 +211,11 @@ $adminBreadcrumbTrail = ['Nurses'];
                                             <input type="hidden" name="action" value="toggle_nurse_duty">
                                             <input type="hidden" name="nurse_id" value="<?= (int) $nurse['NurseID'] ?>">
                                             <input type="hidden" name="is_on_duty" value="<?= $isOnDuty ? '0' : '1' ?>" data-nurse-duty-value>
+                                            <input type="hidden" name="duty_campus" value="" data-nurse-duty-campus-input>
                                             <button type="submit" class="nurse-duty-toggle" role="switch"
                                                     aria-checked="<?= $isOnDuty ? 'true' : 'false' ?>"
                                                     aria-label="Toggle duty status for <?= htmlspecialchars($nurse['FullName'], ENT_QUOTES) ?>"
+                                                    data-nurse-name="<?= htmlspecialchars($nurse['FullName'], ENT_QUOTES) ?>"
                                                     title="<?= $isOnDuty ? 'Set off duty' : 'Set on duty' ?>"
                                                     data-nurse-duty-toggle>
                                                 <span class="nurse-duty-toggle-track" aria-hidden="true"><span></span></span>
@@ -279,12 +288,53 @@ $adminBreadcrumbTrail = ['Nurses'];
                         <input id="add-nurse-license" type="text" name="license_number" value="<?= $addDialogHasError ? htmlspecialchars((string) ($_POST['license_number'] ?? '')) : '' ?>" maxlength="80" autocomplete="off">
                     </label>
                     <label class="nurse-initial-duty" for="add-nurse-duty">
-                        <input id="add-nurse-duty" type="checkbox" name="is_on_duty" value="1" <?= $addDialogHasError && (int) ($_POST['is_on_duty'] ?? 0) === 1 ? 'checked' : '' ?>>
+                        <input id="add-nurse-duty" type="checkbox" name="is_on_duty" value="1" data-add-nurse-duty <?= $addDialogHasError && (int) ($_POST['is_on_duty'] ?? 0) === 1 ? 'checked' : '' ?>>
                         <span>Mark this nurse as on duty</span>
                     </label>
+                    <?php $addCampusSelected = $addDialogHasError ? (string) ($_POST['duty_campus'] ?? '') : ''; ?>
+                    <fieldset class="nurse-campus-options" data-add-nurse-campus <?= $addDialogHasError && (int) ($_POST['is_on_duty'] ?? 0) === 1 ? '' : 'hidden' ?>>
+                        <legend>Campus on duty</legend>
+                        <?php foreach (clinicCampuses() as $campusOption): ?>
+                            <label class="nurse-campus-option">
+                                <input type="radio" name="duty_campus" value="<?= htmlspecialchars($campusOption) ?>" <?= $addCampusSelected === $campusOption ? 'checked' : '' ?>>
+                                <span><?= studentDashboardIcon('pin') ?><?= htmlspecialchars($campusOption) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </fieldset>
                     <div class="nurse-dialog-actions">
                         <button type="button" class="btn btn-secondary" data-nurse-dialog-close>Cancel</button>
                         <button type="submit" class="btn btn-success">Save nurse</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+
+        <dialog class="nurse-dialog" id="nurse-campus-dialog" aria-labelledby="nurse-campus-title" aria-describedby="nurse-campus-description" data-nurse-campus-dialog>
+            <div class="nurse-dialog-shell">
+                <div class="nurse-dialog-heading">
+                    <span class="nurse-dialog-icon"><?= studentDashboardIcon('pin') ?></span>
+                    <div>
+                        <h2 id="nurse-campus-title">Set on duty</h2>
+                        <p id="nurse-campus-description">Choose the campus where <strong data-nurse-campus-name>this nurse</strong> is on duty.</p>
+                    </div>
+                    <button type="button" class="nurse-dialog-close" data-nurse-dialog-close aria-label="Close campus dialog" title="Close">
+                        <?= studentDashboardIcon('close') ?>
+                    </button>
+                </div>
+                <form class="nurse-dialog-form" data-nurse-campus-form>
+                    <div class="alert alert-danger nurse-dialog-alert" data-nurse-campus-error hidden>Choose a campus to continue.</div>
+                    <fieldset class="nurse-campus-options">
+                        <legend class="sr-only">Campus</legend>
+                        <?php foreach (clinicCampuses() as $index => $campusOption): ?>
+                            <label class="nurse-campus-option">
+                                <input type="radio" name="campus_choice" value="<?= htmlspecialchars($campusOption) ?>" <?= $index === 0 ? 'autofocus' : '' ?>>
+                                <span><?= studentDashboardIcon('pin') ?><?= htmlspecialchars($campusOption) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </fieldset>
+                    <div class="nurse-dialog-actions">
+                        <button type="button" class="btn btn-secondary" data-nurse-dialog-close>Cancel</button>
+                        <button type="submit" class="btn btn-success">Set on duty</button>
                     </div>
                 </form>
             </div>

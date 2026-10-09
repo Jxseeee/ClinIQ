@@ -195,6 +195,7 @@ CREATE TABLE Nurses (
     Position VARCHAR(100) NOT NULL DEFAULT 'Clinic Nurse',
     LicenseNumber VARCHAR(80),
     IsOnDuty TINYINT(1) NOT NULL DEFAULT 0,
+    DutyCampus VARCHAR(50) NULL,
     CreatedByAdminID INT NULL,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UpdatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -298,7 +299,7 @@ INSERT INTO Students (
 ) VALUES (
     10001, 'Juan', 'Dela Cruz', 'Santos', 'juan.delacruz@fcat.com.ph', '0917-123-4567',
     '$2y$10$D1/kLLW8lhu9FSRBrdS1yOaIbw/o4lHt3nQAZBZBBmmcV2WfRwb7q', 0,
-    'Bachelor of Science in Information Technology', '2nd Year', 'College of Computing',
+    'Bachelor of Science in Computer Science', '2nd Year', 'College of Computer Studies',
     'Juan', '2003-05-15', 'Filipino', 'Male', '1.70', '65',
     '02-123-4567', '123 Rizal Street, Brgy. Poblacion', 'Bacoor', 'Cavite',
     NULL, NULL, NULL, NULL, 'guardian1', 'guardian1'
