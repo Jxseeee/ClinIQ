@@ -34,7 +34,13 @@ $campusCount = count(clinicCampuses());
                 </header>
                 <span class="nurse-campus-state">
                     <span class="nurse-campus-dot" aria-hidden="true"></span>
-                    <?= $hasNurse ? 'Nurse available' : 'No nurse on duty' ?>
+                    <?php if (!$hasNurse): ?>
+                        No nurse on duty
+                    <?php elseif (count($campusNurses) === 1): ?>
+                        Nurse available
+                    <?php else: ?>
+                        <?= count($campusNurses) ?> nurses available
+                    <?php endif; ?>
                 </span>
                 <?php if ($hasNurse): ?>
                     <ul class="nurse-campus-list">

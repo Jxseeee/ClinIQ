@@ -8437,12 +8437,31 @@ button.birth-date-calendar-day:hover {
     box-shadow: 0 0 0 3px rgba(42, 154, 98, 0.18);
 }
 
+/* Shows two nurses; more scroll inside the tile so every campus tile keeps the same height. */
 .nurse-campus-list {
     display: grid;
     gap: 6px;
+    max-height: calc(2 * 1.8rem + 6px);
     margin: 0;
-    padding: 0;
+    padding: 0 4px 0 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     list-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: #aebfb1 transparent;
+}
+
+.nurse-campus-list::-webkit-scrollbar {
+    width: 5px;
+}
+
+.nurse-campus-list::-webkit-scrollbar-thumb {
+    border-radius: 5px;
+    background: #aebfb1;
+}
+
+.nurse-campus-list li {
+    min-height: 1.8rem;
 }
 
 .nurse-campus-list li {
@@ -8474,11 +8493,13 @@ button.birth-date-calendar-day:hover {
 .nurse-campus-list strong {
     color: var(--ink);
     font-size: 0.74rem;
+    line-height: 1.3;
 }
 
 .nurse-campus-list small {
     color: var(--muted);
     font-size: 0.64rem;
+    line-height: 1.3;
 }
 
 .nurse-campus-empty {
