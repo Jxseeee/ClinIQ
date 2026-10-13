@@ -2056,18 +2056,23 @@ function deleteStoredConsentImage(?string $relativePath): void
 }
 
 /** Streams a stored guardian ID image with safe headers, or returns false if it can't be served. */
-function streamConsentImage(?string $relativePath): bool
+function streamConsentImage(?string $relativePath, ?string $downloadName = null): bool
 {
     $absolutePath = consentImageAbsolutePath($relativePath);
     if ($absolutePath === null) {
         return false;
     }
+    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
-    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+    if (!isset($extensions[$mime])) {
         return false;
     }
 
     header('Content-Type: ' . $mime);
+    if ($downloadName !== null) {
+        // Saves the file instead of opening it; the name is built by the caller from trusted values only.
+        header('Content-Disposition: attachment; filename="' . $downloadName . '.' . $extensions[$mime] . '"');
+    }
     header('Content-Length: ' . filesize($absolutePath));
     header('Cache-Control: private, no-store, max-age=0');
     header('X-Content-Type-Options: nosniff');

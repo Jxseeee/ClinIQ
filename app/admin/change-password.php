@@ -167,7 +167,7 @@ $successMessage = $successMessages[(string) ($_GET['success'] ?? '')] ?? '';
                                 <input type="file" id="admin_settings_avatar" name="profile_image" accept="image/jpeg,image/png,image/webp" required>
                                 <label for="admin_settings_avatar" class="btn btn-success settings-file-picker student-avatar-picker">Edit Avatar</label>
                                 <span class="settings-profile-file-name" aria-live="polite">No file selected</span>
-                                <button type="submit" class="btn btn-success settings-profile-submit" disabled>Save Avatar</button>
+                                <button type="submit" class="btn btn-success settings-profile-submit">Save Avatar</button>
                             </form>
                             <?php if ($profilePhotoUrl): ?>
                                 <form method="POST" class="profile-photo-remove-form">

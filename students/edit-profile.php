@@ -362,6 +362,7 @@ $studentContentClass = 'clinic-wizard-content';
                             data-clinic-wizard data-start-step="<?= $wizardStartStep ?>">
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                         <input type="hidden" name="wizard_step" value="<?= $wizardStartStep ?>" data-wizard-step-input>
+                        <div class="alert alert-danger clinic-wizard-error" data-wizard-error role="alert" hidden></div>
 
         <!-- ── SECTION 1: Student Information ── -->
                 <section class="card form-section clinic-wizard-step" data-wizard-step="1">
@@ -390,6 +391,10 @@ $studentContentClass = 'clinic-wizard-content';
                             <option value="<?= htmlspecialchars($courseOption) ?>" <?= $rawStudentValue('Course') === $courseOption ? 'selected' : '' ?>><?= htmlspecialchars($courseOption) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php $savedCourse = trim((string) ($student['Course'] ?? '')); ?>
+                    <?php if ($savedCourse !== '' && !in_array($savedCourse, clinicCourseOptions(), true)): ?>
+                        <small class="clinic-course-notice">Your saved course (<?= htmlspecialchars($savedCourse) ?>) is not in the current course list. Please select your course again.</small>
+                    <?php endif; ?>
                 </div>
                 <div class="form-group">
                     <label>Year Level *</label>

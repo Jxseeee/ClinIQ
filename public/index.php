@@ -4,12 +4,10 @@ require_once __DIR__ . '/../app/includes/helpers.php';
 requireAdmin();
 
 $user = currentUser();
-$students = $pdo->query(
-    "SELECT StudentID, FirstName, LastName, Email, Phone, CreatedAt FROM Students ORDER BY CreatedAt DESC"
+$totalStudents   = (int) $pdo->query("SELECT COUNT(*) FROM Students")->fetchColumn();
+$recentStudents  = $pdo->query(
+    "SELECT StudentID, FirstName, LastName, Email, CreatedAt FROM Students ORDER BY CreatedAt DESC LIMIT 5"
 )->fetchAll(PDO::FETCH_ASSOC);
-
-$totalStudents   = count($students);
-$adminUnread     = countUnreadChatForAdmin($pdo);
 $totalVisits = countClinicVisits($pdo);
 $clinicOccupancy = fetchClinicOccupancy($pdo);
 
@@ -19,7 +17,6 @@ $estimatedWait = $queueWaiting > 0
     ? (($queueWaiting * 4) + 10) . '–' . (($queueWaiting * 5) + 10) . ' min'
     : 'No wait';
 
-$recentStudents = array_slice($students, 0, 5);
 $recentVisits = fetchClinicVisits($pdo, null, 5);
 $adminPageTitle = 'Dashboard';
 ?>
@@ -30,7 +27,7 @@ $adminPageTitle = 'Dashboard';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
     <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page dashboard-home-body antialiased selection:bg-green-200 selection:text-green-950">
@@ -46,15 +43,6 @@ $adminPageTitle = 'Dashboard';
                     <small>Registered</small>
                 </div>
                 <span class="stat-icon admin-stat-blue"><?= studentDashboardIcon('user') ?></span>
-            </article>
-
-            <article class="student-stat-card admin-primary-stat">
-                <div>
-                    <h2>Unread Messages</h2>
-                    <strong <?= $adminUnread > 0 ? 'class="status-open"' : '' ?>><?= $adminUnread ?></strong>
-                    <small>From students</small>
-                </div>
-                <span class="stat-icon <?= $adminUnread > 0 ? 'pink' : 'admin-stat-blue' ?>"><?= studentDashboardIcon('message') ?></span>
             </article>
 
             <article class="student-stat-card admin-primary-stat">
@@ -154,6 +142,6 @@ $adminPageTitle = 'Dashboard';
         </section>
 
     <?php include __DIR__ . '/../app/includes/admin-dashboard-end.php'; ?>
-    <script src="assets/js/main.js"></script>
+    <script src="assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>
