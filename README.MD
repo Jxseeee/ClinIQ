@@ -250,14 +250,15 @@ Nurse accounts are also created by admins only (Nurses → **+ Add Nurse**, whic
 - Mobile numbers (guardian, emergency contact, student, and admin-entered student phone) must be exactly 11 digits starting with 09; they are validated in the browser and on the server and stored without dashes
 - Student clinic details are edited through a responsive four-step form covering personal information, guardians, medical history/allergies, and a read-only consent preview
 - Wizard steps are sequential and cannot be opened from the progress indicators; the final step provides a downloadable consent PDF
-- Date of Birth cannot be later than the current Manila date
+- Date of Birth must be between 150 years ago and today (the clinic's `APP_TIMEZONE` date): the calendar only offers those dates and the server rejects anything outside them
 - Saved guardian, emergency, medical, allergy, and stored consent details appear in student/admin record views and consent downloads
 - Students can download the clinic form and consent form as PDFs
 - Students can upload a parent/guardian ID image below the consent form; images get random filenames and the upload folder blocks direct URL access, so they are only served through the auth-checked view pages
 - The ID image View button appears only after an upload exists
 - Admins can view uploaded parent/guardian ID images from the student record page
 - Admins record clinic visits from the centralized `app/admin/check-in.php` workflow after searching for an existing student or staff account
-- Staff check-in currently uses existing administrator accounts as staff records
+- Staff check-in uses existing administrator accounts as staff records, and nurses from the Nurses page can be checked in too (stored in `ClinicVisits.PatientNurseID` / `ClinicCheckIns.PatientNurseID`, added automatically if `add_nurse_accounts.sql` hasn't been run). Their visits appear in Reports labelled "Nurse"
+- Anyone else (faculty, non-teaching staff, visitors) can be added and checked in from Check In with "Patient not in the list?": name, type, optional office and contact number, plus the same visit fields as a normal check-in (complaint, vitals, assessment, treatment, medicine, status, disposition, follow-up). The patient and the visit are saved together, so a failed check-in never leaves a half-added patient. They are stored in the `OtherPatients` table (created automatically, or by `add_other_patients.sql`), appear in the Check In search for later visits, and their visits show in Reports with their type
 - Existing medicines are selected from inventory; dosage and quantity are recorded separately, quantity appears in visit history and Reports, and available stock is deducted atomically
 - Students can view clinic visit history in their patient records
 - Patient and consent records stack into readable mobile layouts without horizontal table scrolling
@@ -312,7 +313,6 @@ Nurse accounts are also created by admins only (Nurses → **+ Add Nurse**, whic
 - Medicines are archived (with confirmation) instead of deleted; archived items are hidden from the inventory, stock dialog, and Check In, and can be restored from the Archived medicines section with one click (then use Add stock to record new quantities)
 - Duplicate medicine names are blocked (ignoring letter case and spacing), both live in the Add medicine dialog and on the server; the message points to Add stock or Restore as appropriate
 - Medicine summaries show total active medicine types and items at or below their configured low-stock threshold
-- The medicine stock overview uses a responsive GSAP carousel with next/previous controls that advances one inventory item at a time
 
 ## Project Structure
 

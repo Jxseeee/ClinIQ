@@ -29,8 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ['first_name' => ['First name', 50], 'last_name' => ['Last name', 50], 'email' => ['Email', 100]],
         $errors
     );
+    if ($email === '') $errors[] = 'Email is required.';
     validateEmail($email, $errors);
-    $phone = validateMobileNumber($phone, 'Phone (mobile number)', $errors);
+    $phone = validateMobileNumber($phone, 'Phone (mobile number)', $errors, true);
 
     if (empty($errors)) {
         try {
@@ -115,16 +116,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            value="<?= htmlspecialchars($_POST['last_name'] ?? '') ?>" maxlength="50" required>
                 </div>
                 <div class="form-group">
-                    <label for="email">Email <span class="text-muted">(@fcat.com.ph only)</span></label>
+                    <label for="email">Email * <span class="text-muted">(@fcat.com.ph only)</span></label>
                     <input type="email" id="email" name="email"
                            value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
-                           placeholder="e.g. juan@fcat.com.ph" maxlength="100">
+                           placeholder="e.g. juan@fcat.com.ph" maxlength="100" required>
                 </div>
                 <div class="form-group">
-                    <label for="phone">Phone</label>
+                    <label for="phone">Phone *</label>
                     <input type="text" id="phone" name="phone"
                            value="<?= htmlspecialchars(mobileInputValue($_POST['phone'] ?? '')) ?>"
-                           class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX">
+                           class="mobile-input" inputmode="numeric" maxlength="11" pattern="09[0-9]{9}" title="11 digits starting with 09, e.g. 09171234567" placeholder="09XXXXXXXXX" required>
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Save Student</button>

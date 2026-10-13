@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS ClinicOccupancy;
 DROP TABLE IF EXISTS Medicines;
 DROP TABLE IF EXISTS ClinicCheckIns;
 DROP TABLE IF EXISTS ClinicVisits;
+DROP TABLE IF EXISTS OtherPatients;
 DROP TABLE IF EXISTS ChatConversations;
 DROP TABLE IF EXISTS Messages;
 DROP TABLE IF EXISTS MedicalHistory;
@@ -138,10 +139,24 @@ CREATE TABLE ChatConversations (
     FOREIGN KEY (ResolvedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL
 );
 
+-- Patients who aren't students, nurses or admins (faculty, non-teaching staff, visitors), added at Check In.
+CREATE TABLE OtherPatients (
+    OtherPatientID INT AUTO_INCREMENT PRIMARY KEY,
+    FullName VARCHAR(120) NOT NULL,
+    PatientType VARCHAR(50) NOT NULL,
+    Department VARCHAR(100) NULL,
+    ContactNumber VARCHAR(20) NULL,
+    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_other_patients_name (FullName)
+);
+
 CREATE TABLE ClinicVisits (
     VisitID INT AUTO_INCREMENT PRIMARY KEY,
     StudentID INT NULL,
     StaffID INT NULL,
+    -- The patient when it is a nurse; NurseID below is the nurse who recorded the visit.
+    PatientNurseID INT NULL,
+    OtherPatientID INT NULL,
     AdminID INT NULL,
     NurseID INT NULL,
     Complaint TEXT NOT NULL,
@@ -160,11 +175,14 @@ CREATE TABLE ClinicVisits (
     FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
     FOREIGN KEY (StaffID) REFERENCES Admins(AdminID) ON DELETE CASCADE,
     FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
+    CONSTRAINT fk_clinic_visits_other_patient FOREIGN KEY (OtherPatientID) REFERENCES OtherPatients(OtherPatientID) ON DELETE CASCADE,
     INDEX idx_clinic_visits_student_created (StudentID, CreatedAt),
     INDEX idx_clinic_visits_staff_created (StaffID, CreatedAt),
+    INDEX idx_clinic_visits_patient_nurse_created (PatientNurseID, CreatedAt),
+    INDEX idx_clinic_visits_other_patient_created (OtherPatientID, CreatedAt),
+    -- Exactly one patient: a student, an admin (staff), a nurse, or another patient.
     CONSTRAINT chk_clinic_visit_person CHECK (
-        (StudentID IS NOT NULL AND StaffID IS NULL)
-        OR (StudentID IS NULL AND StaffID IS NOT NULL)
+        ((StudentID IS NOT NULL) + (StaffID IS NOT NULL) + (PatientNurseID IS NOT NULL) + (OtherPatientID IS NOT NULL)) = 1
     ),
     CONSTRAINT chk_clinic_visit_medicine_quantity CHECK (
         MedicineQuantity IS NULL OR MedicineQuantity > 0
@@ -216,7 +234,8 @@ CREATE TABLE Nurses (
 
 -- Visits, chat replies and announcements by a nurse (those tables are created before Nurses, so the keys are added here).
 ALTER TABLE ClinicVisits
-    ADD CONSTRAINT fk_clinic_visits_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL;
+    ADD CONSTRAINT fk_clinic_visits_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL,
+    ADD CONSTRAINT fk_clinic_visits_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE;
 ALTER TABLE Messages
     ADD CONSTRAINT fk_messages_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL;
 ALTER TABLE Announcements
@@ -224,23 +243,33 @@ ALTER TABLE Announcements
 
 CREATE TABLE ClinicCheckIns (
     CheckInID INT AUTO_INCREMENT PRIMARY KEY,
-    PersonType ENUM('student', 'staff') NOT NULL,
+    PersonType ENUM('student', 'staff', 'nurse', 'other') NOT NULL,
     StudentID INT NULL,
     StaffID INT NULL,
+    PatientNurseID INT NULL,
+    OtherPatientID INT NULL,
     VisitID INT NOT NULL UNIQUE,
     CheckedInByAdminID INT NULL,
     CheckedInAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CheckedOutAt DATETIME NULL,
     FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
     FOREIGN KEY (StaffID) REFERENCES Admins(AdminID) ON DELETE CASCADE,
+    CONSTRAINT fk_checkins_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE,
+    CONSTRAINT fk_checkins_other_patient FOREIGN KEY (OtherPatientID) REFERENCES OtherPatients(OtherPatientID) ON DELETE CASCADE,
     FOREIGN KEY (VisitID) REFERENCES ClinicVisits(VisitID) ON DELETE CASCADE,
     FOREIGN KEY (CheckedInByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
     INDEX idx_checkins_active (CheckedOutAt, CheckedInAt),
     INDEX idx_checkins_student_active (StudentID, CheckedOutAt),
     INDEX idx_checkins_staff_active (StaffID, CheckedOutAt),
+    INDEX idx_checkins_patient_nurse_active (PatientNurseID, CheckedOutAt),
+    INDEX idx_checkins_other_patient_active (OtherPatientID, CheckedOutAt),
+    -- Exactly one patient, matching PersonType.
     CONSTRAINT chk_checkin_person CHECK (
-        (PersonType = 'student' AND StudentID IS NOT NULL AND StaffID IS NULL)
-        OR (PersonType = 'staff' AND StudentID IS NULL AND StaffID IS NOT NULL)
+        ((StudentID IS NOT NULL) + (StaffID IS NOT NULL) + (PatientNurseID IS NOT NULL) + (OtherPatientID IS NOT NULL)) = 1
+        AND ((PersonType = 'student' AND StudentID IS NOT NULL)
+          OR (PersonType = 'staff' AND StaffID IS NOT NULL)
+          OR (PersonType = 'nurse' AND PatientNurseID IS NOT NULL)
+          OR (PersonType = 'other' AND OtherPatientID IS NOT NULL))
     )
 );
 

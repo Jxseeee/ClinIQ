@@ -538,12 +538,124 @@ const CLINIC_VISIT_PEOPLE_JOINS = "LEFT JOIN Students s ON s.StudentID = v.Stude
             LEFT JOIN Admins staff ON staff.AdminID = v.StaffID
             LEFT JOIN Admins a ON a.AdminID = v.AdminID";
 
+/** Whether nurses can be checked in as patients (ClinicVisits/ClinicCheckIns.PatientNurseID exist). */
+function nursePatientsSupported(PDO $pdo): bool
+{
+    static $supported = null;
+    if ($supported === null) {
+        // Install first, so the column checks below see the result on a database that is being upgraded.
+        $supported = ensureNurseAccountSchema()
+            && databaseColumnExists($pdo, 'ClinicVisits', 'PatientNurseID')
+            && databaseColumnExists($pdo, 'ClinicCheckIns', 'PatientNurseID');
+    }
+    return $supported;
+}
+
+/** Whether faculty, non-teaching staff and visitors can be checked in (OtherPatients table + OtherPatientID). */
+function otherPatientsSupported(PDO $pdo): bool
+{
+    static $supported = null;
+    if ($supported === null) {
+        $supported = ensureNurseAccountSchema()
+            && databaseTableExists($pdo, 'OtherPatients')
+            && databaseColumnExists($pdo, 'ClinicVisits', 'OtherPatientID')
+            && databaseColumnExists($pdo, 'ClinicCheckIns', 'OtherPatientID');
+    }
+    return $supported;
+}
+
+/** Kinds of patient that can be added at Check In when they aren't a student, nurse or admin. */
+function otherPatientTypes(): array
+{
+    return ['Faculty', 'Non-teaching staff', 'Visitor', 'Other'];
+}
+
+/** The ClinicVisits / ClinicCheckIns column that holds each kind of patient. */
+function clinicPatientColumn(string $personType): string
+{
+    return match ($personType) {
+        'staff' => 'StaffID',
+        'nurse' => 'PatientNurseID',
+        'other' => 'OtherPatientID',
+        default => 'StudentID',
+    };
+}
+
+function otherPatientName(PDO $pdo, int $otherPatientId): ?string
+{
+    if ($otherPatientId <= 0 || !otherPatientsSupported($pdo)) {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT FullName FROM OtherPatients WHERE OtherPatientID = ?');
+    $stmt->execute([$otherPatientId]);
+    $name = $stmt->fetchColumn();
+    return $name === false ? null : (string) $name;
+}
+
+/**
+ * Adds a patient who isn't a student, nurse or admin (faculty, non-teaching staff, visitor) so they can be
+ * checked in and their visits logged. Returns the new OtherPatientID.
+ */
+function createOtherPatient(PDO $pdo, array $data): int
+{
+    if (!otherPatientsSupported($pdo)) {
+        throw new RuntimeException('Adding other patients is not installed yet. Run database/migrations/add_other_patients.sql.');
+    }
+    $fullName = preg_replace('/\s+/u', ' ', trim((string) ($data['full_name'] ?? '')));
+    $patientType = trim((string) ($data['patient_type'] ?? ''));
+    $department = trim((string) ($data['department'] ?? ''));
+    $errors = [];
+    if ($fullName === '') {
+        $errors[] = "Enter the patient's full name.";
+    } elseif (mb_strlen($fullName) > 120) {
+        $errors[] = 'Full name must not exceed 120 characters.';
+    }
+    if (!in_array($patientType, otherPatientTypes(), true)) {
+        $errors[] = 'Choose whether the patient is faculty, non-teaching staff, a visitor, or other.';
+    }
+    if (mb_strlen($department) > 100) {
+        $errors[] = 'Department or office must not exceed 100 characters.';
+    }
+    $contactNumber = validateMobileNumber((string) ($data['contact_number'] ?? ''), 'Contact number', $errors);
+    if ($errors) {
+        throw new InvalidArgumentException($errors[0]);
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO OtherPatients (FullName, PatientType, Department, ContactNumber) VALUES (?, ?, ?, ?)'
+    );
+    $stmt->execute([$fullName, $patientType, $department !== '' ? $department : null, $contactNumber !== '' ? $contactNumber : null]);
+    $otherPatientId = (int) $pdo->lastInsertId();
+    auditLog(
+        $pdo,
+        'visits',
+        'patient.added',
+        'Added ' . mb_strtolower($patientType) . ' patient ' . $fullName . ($department !== '' ? ' (' . $department . ')' : '') . ' for clinic check-in.',
+        ['subject_role' => null]
+    );
+    return $otherPatientId;
+}
+
+/** CLINIC_VISIT_PEOPLE_JOINS plus the nurse (pn) and other (op) patients when supported. */
+function clinicVisitPeopleJoins(PDO $pdo): string
+{
+    return CLINIC_VISIT_PEOPLE_JOINS
+        . (nursePatientsSupported($pdo) ? "\n            LEFT JOIN Nurses pn ON pn.NurseID = v.PatientNurseID" : '')
+        . (otherPatientsSupported($pdo) ? "\n            LEFT JOIN OtherPatients op ON op.OtherPatientID = v.OtherPatientID" : '');
+}
+
+/** Extra patient name columns for the visit search, matching the joins in clinicVisitPeopleJoins(). */
+function clinicVisitExtraNameColumns(PDO $pdo): string
+{
+    return (nursePatientsSupported($pdo) ? ', pn.FullName' : '') . (otherPatientsSupported($pdo) ? ', op.FullName' : '');
+}
+
 /**
  * WHERE clause shared by the clinic visit list and count queries. $filters (optional):
  * 'search' matches patient, complaint, treatment, medicine, or staff name;
  * 'status' is open / completed / follow-up; 'date' (Y-m-d) keeps only visits on that day.
  */
-function clinicVisitWhereSql(?int $studentId, array $filters): array
+function clinicVisitWhereSql(?int $studentId, array $filters, string $extraNameColumns = ''): array
 {
     $where = [];
     $params = [];
@@ -554,7 +666,8 @@ function clinicVisitWhereSql(?int $studentId, array $filters): array
     }
     $search = trim((string) ($filters['search'] ?? ''));
     if ($search !== '') {
-        $where[] = "(CONCAT_WS(' ', s.FirstName, s.LastName, staff.FullName) LIKE ?
+        // $extraNameColumns comes from clinicVisitExtraNameColumns(), so nurse and other patients are searchable.
+        $where[] = "(CONCAT_WS(' ', s.FirstName, s.LastName, staff.FullName{$extraNameColumns}) LIKE ?
                      OR v.Complaint LIKE ? OR v.Treatment LIKE ? OR v.MedicineGiven LIKE ? OR a.FullName LIKE ?)";
         $term = '%' . $search . '%';
         array_push($params, $term, $term, $term, $term, $term);
@@ -582,20 +695,32 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, arr
     }
 
     [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
-    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
+    $nursePatients = nursePatientsSupported($pdo);
+    $otherPatients = otherPatientsSupported($pdo);
+    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters, clinicVisitExtraNameColumns($pdo));
     $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
     $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
     [$consultedSelect, $consultedJoin] = clinicVisitConsultedBySql($pdo);
+    // A patient is a student, an admin (staff) or, when supported, a nurse (pn) or another patient (op).
+    $patientName = ($nursePatients ? 'WHEN v.PatientNurseID IS NOT NULL THEN pn.FullName ' : '')
+        . ($otherPatients ? 'WHEN v.OtherPatientID IS NOT NULL THEN op.FullName ' : '');
+    $patientType = ($nursePatients ? "WHEN v.PatientNurseID IS NOT NULL THEN 'nurse' " : '')
+        . ($otherPatients ? "WHEN v.OtherPatientID IS NOT NULL THEN 'other' " : '');
+    // Other patients have no photo; the ELSE branch is NULL for them because no admin is joined.
+    $nursePhoto = $nursePatients ? 'WHEN v.PatientNurseID IS NOT NULL THEN ' . profileImageSelectSql($pdo, 'Nurses', 'pn') . ' ' : '';
+    $personId = 'COALESCE(v.StudentID, v.StaffID' . ($nursePatients ? ', v.PatientNurseID' : '') . ($otherPatients ? ', v.OtherPatientID' : '') . ')';
+    $otherPatientType = $otherPatients ? 'op.PatientType' : 'NULL';
     $sql = "SELECT v.*,
-               CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
+               CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName {$patientName}ELSE staff.FullName END AS FirstName,
                CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
-               CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
-               CASE WHEN v.StudentID IS NOT NULL THEN {$studentPhoto} ELSE {$staffPhoto} END AS PersonPhotoPath,
-               COALESCE(v.StudentID, v.StaffID) AS PersonID,
+               CASE WHEN v.StudentID IS NOT NULL THEN 'student' {$patientType}ELSE 'staff' END AS PersonType,
+               CASE WHEN v.StudentID IS NOT NULL THEN {$studentPhoto} {$nursePhoto}ELSE {$staffPhoto} END AS PersonPhotoPath,
+               {$otherPatientType} AS OtherPatientType,
+               {$personId} AS PersonID,
                {$consultedSelect},
                {$checkInSelect}
             FROM ClinicVisits v
-            " . CLINIC_VISIT_PEOPLE_JOINS . "
+            " . clinicVisitPeopleJoins($pdo) . "
             {$consultedJoin}
             {$checkInJoin}
             {$whereSql}
@@ -615,8 +740,8 @@ function countClinicVisits(PDO $pdo, ?int $studentId = null, array $filters = []
         return 0;
     }
 
-    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits v " . CLINIC_VISIT_PEOPLE_JOINS . $whereSql);
+    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters, clinicVisitExtraNameColumns($pdo));
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits v " . clinicVisitPeopleJoins($pdo) . $whereSql);
     $stmt->execute($params);
     return (int) $stmt->fetchColumn();
 }
@@ -671,9 +796,9 @@ function countClinicVisitsByStatus(PDO $pdo, array $filters = []): array
         return $counts;
     }
 
-    [$whereSql, $params] = clinicVisitWhereSql(null, $filters);
+    [$whereSql, $params] = clinicVisitWhereSql(null, $filters, clinicVisitExtraNameColumns($pdo));
     $stmt = $pdo->prepare(
-        "SELECT v.Status, COUNT(*) AS Total FROM ClinicVisits v " . CLINIC_VISIT_PEOPLE_JOINS . $whereSql . " GROUP BY v.Status"
+        "SELECT v.Status, COUNT(*) AS Total FROM ClinicVisits v " . clinicVisitPeopleJoins($pdo) . $whereSql . " GROUP BY v.Status"
     );
     $stmt->execute($params);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -695,23 +820,63 @@ function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
         SELECT 1 FROM ClinicCheckIns c
         WHERE c.StaffID = staff.AdminID AND c.CheckedOutAt IS NULL
     )";
+    $nurseWhere = "WHERE NOT EXISTS (
+        SELECT 1 FROM ClinicCheckIns c
+        WHERE c.PatientNurseID = pn.NurseID AND c.CheckedOutAt IS NULL
+    )";
+    $otherWhere = "WHERE NOT EXISTS (
+        SELECT 1 FROM ClinicCheckIns c
+        WHERE c.OtherPatientID = op.OtherPatientID AND c.CheckedOutAt IS NULL
+    )";
+    $nursePatients = nursePatientsSupported($pdo);
+    $otherPatients = otherPatientsSupported($pdo);
     $params = [];
 
     if ($query !== '') {
         $term = '%' . $query . '%';
         $studentWhere .= " AND (CONCAT(s.FirstName, ' ', s.LastName) LIKE ? OR CAST(s.StudentID AS CHAR) LIKE ?)";
         $staffWhere .= ' AND staff.FullName LIKE ?';
-        $params = [$term, $term, $term];
+        $nurseWhere .= ' AND pn.FullName LIKE ?';
+        $otherWhere .= ' AND op.FullName LIKE ?';
+        // One value per placeholder, in the order the UNION parts appear below.
+        $params = array_merge([$term, $term, $term], $nursePatients ? [$term] : [], $otherPatients ? [$term] : []);
     }
 
     $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
     $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
+    // Nurses can be patients too; they are listed with their position.
+    $nurseUnion = $nursePatients
+        ? "UNION ALL
+            SELECT 'nurse' AS PersonType,
+                   pn.NurseID AS PersonID,
+                   pn.FullName AS DisplayName,
+                   pn.Position AS Details,
+                   CONCAT_WS(' ', pn.FullName, pn.Position) AS SearchText,
+                   " . profileImageSelectSql($pdo, 'Nurses', 'pn') . " AS PhotoPath,
+                   'Nurse' AS TypeLabel
+            FROM Nurses pn
+            {$nurseWhere}"
+        : '';
+    // Faculty, non-teaching staff and visitors added at Check In; listed with their type and office.
+    $otherUnion = $otherPatients
+        ? "UNION ALL
+            SELECT 'other' AS PersonType,
+                   op.OtherPatientID AS PersonID,
+                   op.FullName AS DisplayName,
+                   COALESCE(op.Department, '') AS Details,
+                   CONCAT_WS(' ', op.FullName, op.PatientType, op.Department) AS SearchText,
+                   NULL AS PhotoPath,
+                   op.PatientType AS TypeLabel
+            FROM OtherPatients op
+            {$otherWhere}"
+        : '';
     $sql = "SELECT 'student' AS PersonType,
                    s.StudentID AS PersonID,
                    CONCAT(s.FirstName, ' ', s.LastName) AS DisplayName,
                    CONCAT('#', s.StudentID) AS Details,
                    CONCAT_WS(' ', s.FirstName, s.LastName, s.StudentID) AS SearchText,
-                   {$studentPhoto} AS PhotoPath
+                   {$studentPhoto} AS PhotoPath,
+                   'Student' AS TypeLabel
             FROM Students s
             {$studentWhere}
             UNION ALL
@@ -720,9 +885,12 @@ function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
                    staff.FullName AS DisplayName,
                    '' AS Details,
                    staff.FullName AS SearchText,
-                   {$staffPhoto} AS PhotoPath
+                   {$staffPhoto} AS PhotoPath,
+                   'Staff' AS TypeLabel
             FROM Admins staff
             {$staffWhere}
+            {$nurseUnion}
+            {$otherUnion}
             ORDER BY DisplayName ASC";
     if ($limit > 0) {
         $sql .= ' LIMIT ' . (int) $limit;
@@ -734,23 +902,42 @@ function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
 
 function fetchCheckInPerson(PDO $pdo, string $personType, int $personId): ?array
 {
-    if ($personId <= 0 || !in_array($personType, ['student', 'staff'], true)) {
+    $personTypes = array_merge(
+        ['student', 'staff'],
+        nursePatientsSupported($pdo) ? ['nurse'] : [],
+        otherPatientsSupported($pdo) ? ['other'] : []
+    );
+    if ($personId <= 0 || !in_array($personType, $personTypes, true)) {
         return null;
     }
 
-    if ($personType === 'student') {
+    if ($personType === 'other') {
+        $stmt = $pdo->prepare(
+            "SELECT 'other' AS PersonType, OtherPatientID AS PersonID, FullName AS DisplayName,
+                    CONCAT_WS(' · ', NULLIF(Department, ''), NULLIF(ContactNumber, '')) AS Details,
+                    NULL AS PhotoPath, PatientType AS TypeLabel
+             FROM OtherPatients WHERE OtherPatientID = ?"
+        );
+    } elseif ($personType === 'nurse') {
+        $photo = profileImageSelectSql($pdo, 'Nurses', 'Nurses');
+        $stmt = $pdo->prepare(
+            "SELECT 'nurse' AS PersonType, NurseID AS PersonID, FullName AS DisplayName,
+                    Position AS Details, {$photo} AS PhotoPath, 'Nurse' AS TypeLabel
+             FROM Nurses WHERE NurseID = ?"
+        );
+    } elseif ($personType === 'student') {
         $photo = profileImageSelectSql($pdo, 'Students', 'Students');
         $stmt = $pdo->prepare(
             "SELECT 'student' AS PersonType, StudentID AS PersonID,
                     CONCAT(FirstName, ' ', LastName) AS DisplayName,
-                    CONCAT('#', StudentID) AS Details, {$photo} AS PhotoPath
+                    CONCAT('#', StudentID) AS Details, {$photo} AS PhotoPath, 'Student' AS TypeLabel
              FROM Students WHERE StudentID = ?"
         );
     } else {
         $photo = profileImageSelectSql($pdo, 'Admins', 'Admins');
         $stmt = $pdo->prepare(
             "SELECT 'staff' AS PersonType, AdminID AS PersonID, FullName AS DisplayName,
-                    '' AS Details, {$photo} AS PhotoPath
+                    '' AS Details, {$photo} AS PhotoPath, 'Staff' AS TypeLabel
              FROM Admins WHERE AdminID = ?"
         );
     }
@@ -763,7 +950,10 @@ function fetchClinicVisitsForPerson(PDO $pdo, string $personType, int $personId)
     if (!databaseTableExists($pdo, 'ClinicVisits')) {
         return [];
     }
-    $column = $personType === 'staff' ? 'StaffID' : 'StudentID';
+    $column = clinicPatientColumn($personType);
+    if (($personType === 'nurse' && !nursePatientsSupported($pdo)) || ($personType === 'other' && !otherPatientsSupported($pdo))) {
+        return [];
+    }
     [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
     [$consultedSelect, $consultedJoin] = clinicVisitConsultedBySql($pdo);
     $stmt = $pdo->prepare(
@@ -794,17 +984,28 @@ function fetchActiveClinicCheckIns(PDO $pdo): array
     }
     $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
     $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
+    // Nurse (pn) and other (op) patients are included when supported; other patients have no photo,
+    // and the ELSE photo branch is NULL for them because no admin is joined.
+    $nursePatients = nursePatientsSupported($pdo);
+    $otherPatients = otherPatientsSupported($pdo);
+    $nurseName = ($nursePatients ? ', pn.FullName' : '') . ($otherPatients ? ', op.FullName' : '');
+    $nurseDetails = ($nursePatients ? "WHEN c.PersonType = 'nurse' THEN CONCAT(pn.Position, ' · Nurse') " : '')
+        . ($otherPatients ? "WHEN c.PersonType = 'other' THEN CONCAT_WS(' · ', NULLIF(op.Department, ''), op.PatientType) " : '');
+    $nursePhoto = $nursePatients ? "WHEN c.PersonType = 'nurse' THEN " . profileImageSelectSql($pdo, 'Nurses', 'pn') . ' ' : '';
+    $nurseJoin = ($nursePatients ? 'LEFT JOIN Nurses pn ON pn.NurseID = c.PatientNurseID' : '')
+        . ($otherPatients ? "\n         LEFT JOIN OtherPatients op ON op.OtherPatientID = c.OtherPatientID" : '');
     return $pdo->query(
         "SELECT c.*, v.Complaint, v.Status,
-                COALESCE(CONCAT(s.FirstName, ' ', s.LastName), staff.FullName) AS DisplayName,
+                COALESCE(CONCAT(s.FirstName, ' ', s.LastName), staff.FullName{$nurseName}) AS DisplayName,
                 CASE WHEN c.PersonType = 'student'
                      THEN CONCAT('#', s.StudentID, ' · Student')
-                     ELSE CONCAT('@', staff.Username, ' · Staff') END AS Details,
-                CASE WHEN c.PersonType = 'student' THEN {$studentPhoto} ELSE {$staffPhoto} END AS PhotoPath
+                     {$nurseDetails}ELSE CONCAT('@', staff.Username, ' · Staff') END AS Details,
+                CASE WHEN c.PersonType = 'student' THEN {$studentPhoto} {$nursePhoto}ELSE {$staffPhoto} END AS PhotoPath
          FROM ClinicCheckIns c
          JOIN ClinicVisits v ON v.VisitID = c.VisitID
          LEFT JOIN Students s ON s.StudentID = c.StudentID
          LEFT JOIN Admins staff ON staff.AdminID = c.StaffID
+         {$nurseJoin}
          WHERE c.CheckedOutAt IS NULL
          ORDER BY c.CheckedInAt ASC"
     )->fetchAll(PDO::FETCH_ASSOC);
@@ -821,7 +1022,7 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $
     }
     $person = fetchCheckInPerson($pdo, $personType, $personId);
     if (!$person) {
-        throw new InvalidArgumentException('Choose an existing student or staff member.');
+        throw new InvalidArgumentException('Choose an existing student, nurse or staff member.');
     }
 
     $complaint = trim((string) ($data['complaint'] ?? ''));
@@ -873,12 +1074,17 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $
         throw new InvalidArgumentException('Choose a medicine before entering a dosage or quantity.');
     }
 
-    $pdo->beginTransaction();
+    // Joins a transaction the caller already started (e.g. adding a new patient and their visit together).
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
     try {
-        $duplicateSql = $personType === 'student'
-            ? "SELECT COUNT(*) FROM ClinicCheckIns WHERE StudentID = ? AND CheckedOutAt IS NULL FOR UPDATE"
-            : "SELECT COUNT(*) FROM ClinicCheckIns WHERE StaffID = ? AND CheckedOutAt IS NULL FOR UPDATE";
-        $duplicate = $pdo->prepare($duplicateSql);
+        // fetchCheckInPerson() above only accepts 'nurse' and 'other' when their columns exist.
+        $personColumn = clinicPatientColumn($personType);
+        $duplicate = $pdo->prepare(
+            "SELECT COUNT(*) FROM ClinicCheckIns WHERE {$personColumn} = ? AND CheckedOutAt IS NULL FOR UPDATE"
+        );
         $duplicate->execute([$personId]);
         if ((int) $duplicate->fetchColumn() > 0) {
             throw new InvalidArgumentException($person['DisplayName'] . ' is already checked in.');
@@ -906,16 +1112,22 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $
 
         $studentId = $personType === 'student' ? $personId : null;
         $staffId = $personType === 'staff' ? $personId : null;
+        // A nurse patient (PatientNurseID, not NurseID, which is the nurse recording the visit) or another
+        // patient (OtherPatientID) gets one extra column on both the visit and the check-in.
+        $extraPatientColumn = in_array($personType, ['nurse', 'other'], true) ? clinicPatientColumn($personType) : null;
+        $patientColumn = $extraPatientColumn !== null ? $extraPatientColumn . ', ' : '';
+        $patientPlaceholder = $extraPatientColumn !== null ? '?, ' : '';
+        $patientValue = $extraPatientColumn !== null ? [$personId] : [];
         $recordNurse = $nurseId !== null && databaseColumnExists($pdo, 'ClinicVisits', 'NurseID');
         $nurseColumn = $recordNurse ? 'NurseID, ' : '';
         $nursePlaceholder = $recordNurse ? '?, ' : '';
         $visit = $pdo->prepare(
             "INSERT INTO ClinicVisits
-             (StudentID, StaffID, AdminID, {$nurseColumn}Complaint, Vitals, Assessment, Treatment,
+             (StudentID, StaffID, {$patientColumn}AdminID, {$nurseColumn}Complaint, Vitals, Assessment, Treatment,
               MedicineGiven, MedicineID, MedicineDosage, MedicineQuantity, Status, Disposition, FollowUpDate)
-             VALUES (?, ?, ?, {$nursePlaceholder}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, {$patientPlaceholder}?, {$nursePlaceholder}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
-        $visit->execute(array_merge([$studentId, $staffId, $adminId], $recordNurse ? [$nurseId] : [], [
+        $visit->execute(array_merge([$studentId, $staffId], $patientValue, [$adminId], $recordNurse ? [$nurseId] : [], [
             $complaint,
             trim((string) ($data['vitals'] ?? '')) ?: null,
             trim((string) ($data['assessment'] ?? '')) ?: null,
@@ -933,10 +1145,14 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $
 
         $checkIn = $pdo->prepare(
             "INSERT INTO ClinicCheckIns
-             (PersonType, StudentID, StaffID, VisitID, CheckedInByAdminID, CheckedInAt)
-             VALUES (?, ?, ?, ?, ?, NOW())"
+             (PersonType, StudentID, StaffID, {$patientColumn}VisitID, CheckedInByAdminID, CheckedInAt)
+             VALUES (?, ?, ?, {$patientPlaceholder}?, ?, NOW())"
         );
-        $checkIn->execute([$personType, $studentId, $staffId, $visitId, $adminId]);
+        $checkIn->execute(array_merge(
+            [$personType, $studentId, $staffId],
+            $patientValue,
+            [$visitId, $adminId]
+        ));
         $checkInId = (int) $pdo->lastInsertId();
 
         if ($medicineId !== null) {
@@ -965,16 +1181,25 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $
             $pdo,
             'visits',
             'visit.checked_in',
-            'Checked in ' . $person['DisplayName'] . ' (' . $personType . ') to the clinic. Complaint: '
+            'Checked in ' . $person['DisplayName'] . ' (' . mb_strtolower((string) ($person['TypeLabel'] ?? $personType)) . ') to the clinic. Complaint: '
                 . mb_strimwidth($complaint, 0, 160, '...')
                 . ($medicineName !== null ? '. Medicine given: ' . $medicineName . ' x' . $medicineQuantity : '') . '.',
             ($adminId !== null ? ['actor_role' => 'admin', 'actor_id' => $adminId] : [])
-                + ['subject_role' => $personType === 'staff' ? 'admin' : 'student', 'subject_id' => $personId]
+                + match ($personType) {
+                    'nurse' => nurseAuditSubject($personId),
+                    // Other patients have no account; the entry is clinic-wide and names them in the description.
+                    'other' => ['subject_role' => null],
+                    'staff' => ['subject_role' => 'admin', 'subject_id' => $personId],
+                    default => ['subject_role' => 'student', 'subject_id' => $personId],
+                }
         );
-        $pdo->commit();
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
         return $checkInId;
     } catch (Throwable $error) {
-        if ($pdo->inTransaction()) {
+        // A caller's transaction is rolled back by that caller.
+        if ($ownsTransaction && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
         throw $error;
@@ -990,7 +1215,7 @@ function checkOutClinicCheckIn(PDO $pdo, int $checkInId): string
     $pdo->beginTransaction();
     try {
         $visit = $pdo->prepare(
-            "SELECT VisitID, PersonType, StudentID, StaffID FROM ClinicCheckIns
+            "SELECT * FROM ClinicCheckIns
              WHERE CheckInID = ? AND CheckedOutAt IS NULL FOR UPDATE"
         );
         $visit->execute([$checkInId]);
@@ -1004,15 +1229,19 @@ function checkOutClinicCheckIn(PDO $pdo, int $checkInId): string
         $stmt->execute([$checkedOutAt, $checkInId]);
         $closeVisit = $pdo->prepare("UPDATE ClinicVisits SET Status = 'completed' WHERE VisitID = ? AND Status = 'open'");
         $closeVisit->execute([$visitId]);
-        $isStaff = ($checkIn['PersonType'] ?? '') === 'staff';
-        $subjectRole = $isStaff ? 'admin' : 'student';
-        $subjectId = (int) ($isStaff ? $checkIn['StaffID'] : $checkIn['StudentID']);
+        [$subjectRole, $subjectId, $typeLabel, $fallbackName] = match ($checkIn['PersonType'] ?? '') {
+            'staff' => ['admin', (int) $checkIn['StaffID'], 'staff', 'a staff member'],
+            'nurse' => ['nurse', (int) ($checkIn['PatientNurseID'] ?? 0), 'nurse', 'a nurse'],
+            // Other patients have no account, so the entry is clinic-wide and the name comes from OtherPatients.
+            'other' => [null, null, 'other patient', otherPatientName($pdo, (int) ($checkIn['OtherPatientID'] ?? 0)) ?? 'a patient'],
+            default => ['student', (int) $checkIn['StudentID'], 'student', 'a student'],
+        };
         auditLog(
             $pdo,
             'visits',
             'visit.checked_out',
-            'Checked out ' . (auditAccountName($pdo, $subjectRole, $subjectId) ?? 'a ' . ($isStaff ? 'staff member' : 'student'))
-                . ' (' . ($isStaff ? 'staff' : 'student') . ') from the clinic.',
+            'Checked out ' . (auditAccountName($pdo, $subjectRole, $subjectId) ?? $fallbackName)
+                . ' (' . $typeLabel . ') from the clinic.',
             ['subject_role' => $subjectRole, 'subject_id' => $subjectId]
         );
         $pdo->commit();

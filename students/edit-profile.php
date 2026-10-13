@@ -15,7 +15,9 @@ $errors = [];
 $wizardStartStep = 1;
 // The clinic time zone set from APP_TIMEZONE in app/config/database.php.
 $clinicTimezone = new DateTimeZone(date_default_timezone_get());
+// Date of Birth: from 150 years ago up to today, never in the future.
 $maximumBirthDate = new DateTimeImmutable('today', $clinicTimezone);
+$minimumBirthDate = $maximumBirthDate->modify('-150 years');
 $minimumDiagnosisDate = new DateTimeImmutable('1900-01-01', $clinicTimezone);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -62,6 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stepOneErrors[] = 'Please choose a valid Date of Birth.';
         } elseif ($birthDate > $maximumBirthDate) {
             $stepOneErrors[] = 'Date of Birth cannot be in the future.';
+        } elseif ($birthDate < $minimumBirthDate) {
+            $stepOneErrors[] = 'Date of Birth cannot be more than 150 years ago.';
         }
     }
     if ($gender === '')      $stepOneErrors[] = 'Gender is required.';
@@ -423,10 +427,10 @@ $studentContentClass = 'clinic-wizard-content';
                 <div class="form-group">
                     <label for="date_of_birth" id="birth-date-label">Date of Birth *</label>
                     <div class="birth-date-picker" data-birth-date-picker
-                         data-min-date="1900-01-01"
+                         data-min-date="<?= $minimumBirthDate->format('Y-m-d') ?>"
                          data-max-date="<?= $maximumBirthDate->format('Y-m-d') ?>">
                         <input type="date" id="date_of_birth" name="date_of_birth" value="<?= $v('DateOfBirth') ?>"
-                               min="1900-01-01" max="<?= $maximumBirthDate->format('Y-m-d') ?>" required>
+                               min="<?= $minimumBirthDate->format('Y-m-d') ?>" max="<?= $maximumBirthDate->format('Y-m-d') ?>" required>
                         <button type="button" class="birth-date-trigger" id="birth_date_trigger"
                                 aria-haspopup="dialog" aria-controls="birth-date-calendar"
                                 aria-expanded="false" aria-labelledby="birth-date-label birth-date-display" hidden>

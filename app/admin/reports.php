@@ -202,34 +202,6 @@ $adminBreadcrumbTrail = ['Reports'];
             </article>
         </section>
 
-        <?php if ($allMedicines): ?>
-            <section class="medicine-showcase medicine-carousel" aria-label="Medicine stock overview" data-medicine-carousel>
-                <button type="button" class="medicine-carousel-button is-previous is-disabled" data-medicine-carousel-previous aria-label="Show previous medicine" aria-hidden="true" disabled>
-                    <?= studentDashboardIcon('chevron-left') ?>
-                </button>
-                <div class="medicine-showcase-viewport">
-                    <div class="medicine-showcase-track" data-medicine-carousel-track>
-                        <?php foreach ($allMedicines as $index => $medicine): ?>
-                            <article class="medicine-showcase-card medicine-tone-<?= ($index % 4) + 1 ?>" data-medicine-carousel-item>
-                                <span><img class="reports-medicine-card-icon" src="../../public/assets/images/cards.png" alt=""></span>
-                                <div class="medicine-showcase-copy">
-                                    <h3><?= htmlspecialchars($medicine['Name']) ?></h3>
-                                    <div class="medicine-showcase-stock">
-                                        <strong><?= (int) $medicine['Stock'] ?></strong>
-                                        <small>in stock</small>
-                                    </div>
-                                </div>
-                            </article>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                <button type="button" class="medicine-carousel-button is-next" data-medicine-carousel-next aria-label="Show next medicine">
-                    <?= studentDashboardIcon('chevron-right') ?>
-                </button>
-                <p class="medicine-carousel-status" data-medicine-carousel-status aria-live="polite"></p>
-            </section>
-        <?php endif; ?>
-
         <section class="reports-section medicine-inventory-section" data-live-scope>
             <div class="reports-section-heading">
                 <div>
@@ -607,7 +579,11 @@ $adminBreadcrumbTrail = ['Reports'];
                                             <small>Student #<?= (int) $visit['PersonID'] ?></small>
                                         <?php else: ?>
                                             <strong><?= htmlspecialchars(trim((string) ($visit['FirstName'] ?? ''))) ?></strong>
-                                            <small>Staff</small>
+                                            <small><?= htmlspecialchars(match ($visit['PersonType'] ?? '') {
+                                                'nurse' => 'Nurse',
+                                                'other' => (string) ($visit['OtherPatientType'] ?: 'Other'),
+                                                default => 'Staff',
+                                            }) ?></small>
                                         <?php endif; ?>
                                     </div>
                                 </td>
