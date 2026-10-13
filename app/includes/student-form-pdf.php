@@ -19,6 +19,13 @@ function pdfDate(?string $value): string
     return $timestamp ? date('F j, Y', $timestamp) : '';
 }
 
+// Compact form for the narrow medical-history date column, so dates don't wrap onto two lines.
+function pdfShortDate(?string $value): string
+{
+    $timestamp = $value ? strtotime($value) : false;
+    return $timestamp ? date('M j, Y', $timestamp) : '';
+}
+
 function pdfField(string $label, $value, int $colspan = 1): string
 {
     return '<td' . ($colspan > 1 ? ' colspan="' . $colspan . '"' : '') . '>'
@@ -104,7 +111,7 @@ function studentClinicFormHtml(array $student, array $g1, array $g2, array $medH
         }
         $row = $medMap[$illness] ?? null;
         return '<td class="ill-name">' . checkedBox($row !== null) . ' ' . pdfValue($illness) . '</td>'
-            . '<td class="ill-date">' . pdfValue($row ? pdfDate($row['DiagnosisDate'] ?? null) : '') . '</td>'
+            . '<td class="ill-date">' . pdfValue($row ? pdfShortDate($row['DiagnosisDate'] ?? null) : '') . '</td>'
             . '<td class="ill-age">' . pdfValue($row['DiagnosisAge'] ?? '') . '</td>';
     };
     $illnessRows = '';
@@ -232,11 +239,11 @@ function studentConsentFormHtml(array $student, array $g1): string
 
 function formPdfCss(): string
 {
-    return '@page{margin:22pt 34pt 38pt;}'
+    return '@page{margin:22pt 34pt 22pt;}'
         . '*{box-sizing:border-box;}'
         . 'body{margin:0;font-family:"DejaVu Sans",sans-serif;font-size:8pt;color:#1d2621;background:#fff;line-height:1.22;}'
         . '.form-code{margin:0 0 4pt;font-size:8pt;font-weight:bold;color:#123f2d;letter-spacing:.3pt;}'
-        . '.letterhead{width:100%;border-collapse:collapse;border-bottom:2pt solid #123f2d;margin-bottom:7pt;}'
+        . '.letterhead{width:100%;border-collapse:collapse;border-bottom:2pt solid #123f2d;margin-bottom:5pt;}'
         . '.letterhead td{vertical-align:middle;padding:0 0 5pt;}'
         . '.lh-logo{width:54pt;}.lh-logo img{width:46pt;height:46pt;}'
         . '.lh-school{font-size:12pt;font-weight:bold;color:#123f2d;letter-spacing:.4pt;}'
@@ -244,26 +251,26 @@ function formPdfCss(): string
         . '.lh-est{font-size:7pt;color:#6d7a71;margin-top:2pt;}'
         . '.lh-meta{width:92pt;text-align:right;}.lh-id{display:block;font-size:12pt;font-weight:bold;color:#123f2d;}'
         . '.doc-title{text-align:center;font-size:12.5pt;font-weight:bold;text-transform:uppercase;letter-spacing:1pt;color:#123f2d;}'
-        . '.doc-subtitle{text-align:center;font-size:7pt;color:#6d7a71;margin:1pt 0 6pt;}'
-        . '.section-title{margin:7pt 0 3pt;padding:2.5pt 6pt;background:#e8f1eb;border-left:3pt solid #123f2d;font-size:8.5pt;font-weight:bold;text-transform:uppercase;letter-spacing:.5pt;color:#123f2d;}'
+        . '.doc-subtitle{text-align:center;font-size:7pt;color:#6d7a71;margin:1pt 0 4pt;}'
+        . '.section-title{margin:5pt 0 3pt;padding:2pt 6pt;background:#e8f1eb;border-left:3pt solid #123f2d;font-size:8.5pt;font-weight:bold;text-transform:uppercase;letter-spacing:.5pt;color:#123f2d;}'
         . 'table{width:100%;border-collapse:collapse;}'
-        . '.fields{table-layout:fixed;margin-bottom:4pt;}'
-        . '.fields td,.fields th{border:.75pt solid #9aa79e;padding:2pt 5pt;vertical-align:top;}'
+        . '.fields{table-layout:fixed;margin-bottom:3pt;}'
+        . '.fields td,.fields th{border:.75pt solid #9aa79e;padding:1.6pt 5pt;vertical-align:top;}'
         . '.fields th{background:#f3f6f3;font-size:8pt;text-align:left;color:#123f2d;padding:3pt 5pt;}.fields th .marks{font-weight:normal;color:#1d2621;font-size:7.6pt;}'
         . '.lbl{display:block;font-size:5.8pt;text-transform:uppercase;letter-spacing:.3pt;color:#6d7a71;}'
-        . '.val{display:block;min-height:9pt;font-size:8.2pt;color:#111;}'
+        . '.val{display:block;min-height:9pt;font-size:8.2pt;color:#111;word-wrap:break-word;overflow-wrap:break-word;}'
         . '.marks{font-size:8pt;}'
         . '.split{table-layout:fixed;}.split td{border:0;padding:0 4pt 0 0;vertical-align:top;}'
         . '.note{margin:0 0 3pt;font-size:6.8pt;color:#6d7a71;}'
         . '.history{table-layout:fixed;margin-bottom:4pt;page-break-inside:avoid;}'
-        . '.history th,.history td{border:.75pt solid #9aa79e;padding:1.6pt 4pt;font-size:7.3pt;}'
+        . '.history th,.history td{border:.75pt solid #9aa79e;padding:1pt 4pt;font-size:7.3pt;line-height:1.1;}'
         . '.history th{background:#f3f6f3;text-align:left;color:#123f2d;}'
         . '.ill-name{width:32%;}.ill-date{width:12.5%;}.ill-age{width:5.5%;text-align:center;}'
-        . '.certification{margin-top:7pt;font-size:7.6pt;}'
-        . '.certification p{margin:0 0 3pt;}'
+        . '.certification{margin-top:5pt;font-size:7.6pt;page-break-inside:avoid;}'
+        . '.certification p{margin:0 0 2pt;}'
         . '.privacy{font-size:7.3pt;color:#1f6b4b;}'
         . '.signatures{margin-top:6pt;table-layout:fixed;page-break-inside:avoid;}'
-        . '.signatures td{width:50%;padding:16pt 14pt 0 0;vertical-align:bottom;}.signatures .sig-right{padding:16pt 0 0 14pt;}'
+        . '.signatures td{width:50%;padding:8pt 14pt 0 0;vertical-align:bottom;}.signatures .sig-right{padding:8pt 0 0 14pt;}'
         . '.signatures .sig-date{width:30%;padding-right:0;}'
         . '.sig-name{text-align:center;font-size:8.8pt;min-height:11pt;}'
         . '.sig-line{border-top:.9pt solid #1d2621;text-align:center;font-size:6.8pt;color:#4a564e;padding-top:2pt;}'
