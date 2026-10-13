@@ -13,7 +13,8 @@ $illnesses = clinicIllnessList();
 
 $errors = [];
 $wizardStartStep = 1;
-$clinicTimezone = new DateTimeZone('Asia/Manila');
+// The clinic time zone set from APP_TIMEZONE in app/config/database.php.
+$clinicTimezone = new DateTimeZone(date_default_timezone_get());
 $maximumBirthDate = new DateTimeImmutable('today', $clinicTimezone);
 $minimumDiagnosisDate = new DateTimeImmutable('1900-01-01', $clinicTimezone);
 

@@ -36,15 +36,15 @@ $studentBreadcrumbTrail = ['Messages'];
     <div class="student-messages-page">
         <div class="student-messages-header">
             <h1>Messages</h1>
-            <p>You can message the clinic admin for any questions or concerns.</p>
+            <p>You can message the clinic staff for any questions or concerns.</p>
 
             <div class="student-chat-contact">
                 <span class="student-chat-contact-icon"><?= studentDashboardIcon('headset') ?></span>
                 <div class="student-chat-contact-copy">
-                    <strong>Clinic Admin</strong>
-                    <small>We typically reply within 24 hours</small>
+                    <strong>Clinic Staff</strong>
+                    <small>We reply within <?= CHAT_AUTO_REPLY_HOURS ?> hours</small>
                 </div>
-                <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
+                <small class="student-chat-capacity">Students chatting: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
             </div>
         </div>
 
@@ -86,7 +86,7 @@ $studentBreadcrumbTrail = ['Messages'];
                         <div class="student-chat-empty" id="chat-empty">
                             <span><?= studentDashboardIcon('chat') ?></span>
                             <strong>No messages yet</strong>
-                            <p>Send a message to the clinic admin.</p>
+                            <p>Send a message to the clinic staff.</p>
                         </div>
                     <?php else: ?>
                         <?php include __DIR__ . '/../app/includes/chat-messages.php'; ?>

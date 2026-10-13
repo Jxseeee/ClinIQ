@@ -3,15 +3,19 @@
 // Expects: $auditViewerRole, $auditViewerId, $auditFilters, $auditEntries, $auditTotal, $auditPage, $auditPageCount.
 $auditCategoryLabels = auditCategories();
 $auditIsAdmin = $auditViewerRole === 'admin';
+$auditIsNurse = $auditViewerRole === 'nurse';
 $auditPageUrl = static function (int $page) use ($auditFilters): string {
     return '?' . http_build_query(array_filter($auditFilters + ['page' => $page], static fn($value): bool => $value !== '' && $value !== null));
 };
 $auditRoleLabel = static fn(?string $role): string => match ($role) {
     'admin' => 'Administrator',
+    'nurse' => 'Nurse',
     'student' => 'Student',
     default => 'Not signed in',
 };
 $auditSelectedStudentId = $auditSelectedStudentId ?? null;
+$auditSelectedNurseId = $auditSelectedNurseId ?? null;
+$auditNurseAccounts = $auditNurseAccounts ?? [];
 ?>
 <section class="reports-section audit-log-section" data-live-scope>
     <div class="reports-section-heading">
@@ -20,7 +24,9 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
             <p>
                 <?= $auditIsAdmin
                     ? 'Every important change across the clinic system, newest first.'
-                    : 'Sign-ins, password and account changes, clinic form updates, and actions the clinic took on your account.' ?>
+                    : ($auditIsNurse
+                        ? 'Your sign-ins, password and duty changes, check-ins, chats, announcements, and changes an administrator made to your account.'
+                        : 'Sign-ins, password and account changes, clinic form updates, and actions the clinic took on your account.') ?>
             </p>
         </div>
         <span class="audit-total" data-audit-total><strong><?= number_format($auditTotal) ?></strong> <?= $auditTotal === 1 ? 'entry' : 'entries' ?></span>
@@ -31,6 +37,12 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
             <div class="audit-viewing-student">
                 <?= studentDashboardIcon('user') ?>
                 <span>Showing the audit log of <strong><?= htmlspecialchars($auditStudentAccounts[$auditSelectedStudentId] ?? 'Student') ?></strong> (#<?= $auditSelectedStudentId ?>)</span>
+                <a href="audit-log.php" class="btn btn-secondary" data-live-link>Show all activity</a>
+            </div>
+        <?php elseif ($auditIsAdmin && $auditSelectedNurseId !== null): ?>
+            <div class="audit-viewing-student">
+                <?= studentDashboardIcon('nurse') ?>
+                <span>Showing the audit log of nurse <strong><?= htmlspecialchars($auditNurseAccounts[$auditSelectedNurseId] ?? 'Nurse') ?></strong>: what they did, and changes made to their account</span>
                 <a href="audit-log.php" class="btn btn-secondary" data-live-link>Show all activity</a>
             </div>
         <?php endif; ?>
@@ -48,7 +60,7 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
             <select name="category">
                 <option value="">All categories</option>
                 <?php foreach ($auditCategoryLabels as $categoryKey => $categoryLabel): ?>
-                    <?php if (!$auditIsAdmin && in_array($categoryKey, ['inventory', 'nurses', 'announcements'], true)) continue; ?>
+                    <?php if ($auditViewerRole === 'student' && in_array($categoryKey, ['inventory', 'nurses', 'announcements'], true)) continue; ?>
                     <option value="<?= htmlspecialchars($categoryKey) ?>" <?= $auditFilters['category'] === $categoryKey ? 'selected' : '' ?>><?= htmlspecialchars($categoryLabel) ?></option>
                 <?php endforeach; ?>
             </select>
@@ -63,6 +75,13 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
                         <optgroup label="A specific student">
                             <?php foreach ($auditStudentAccounts as $accountId => $accountName): ?>
                                 <option value="student:<?= (int) $accountId ?>" <?= $auditSelectedStudentId === (int) $accountId ? 'selected' : '' ?>>#<?= (int) $accountId ?> &mdash; <?= htmlspecialchars($accountName) ?></option>
+                            <?php endforeach; ?>
+                        </optgroup>
+                    <?php endif; ?>
+                    <?php if (!empty($auditNurseAccounts)): ?>
+                        <optgroup label="A specific nurse">
+                            <?php foreach ($auditNurseAccounts as $accountId => $accountName): ?>
+                                <option value="nurse:<?= (int) $accountId ?>" <?= $auditSelectedNurseId === (int) $accountId ? 'selected' : '' ?>><?= htmlspecialchars($accountName) ?></option>
                             <?php endforeach; ?>
                         </optgroup>
                     <?php endif; ?>
@@ -103,7 +122,7 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
                         $isSelf = $entry['ActorRole'] === $auditViewerRole && (int) $entry['ActorID'] === $auditViewerId;
                         $isAlert = $entry['Action'] === 'auth.login_failed';
                         // Students never see staff names or staff IP addresses.
-                        $hideStaffDetails = !$auditIsAdmin && $entry['ActorRole'] === 'admin';
+                        $hideStaffDetails = $auditViewerRole === 'student' && in_array($entry['ActorRole'], ['admin', 'nurse'], true);
                     ?>
                     <tr class="<?= $isAlert ? 'is-alert' : '' ?>">
                         <td data-label="Date &amp; time">

@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../app/config/auth.php';
 require_once __DIR__ . '/../app/includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $user = currentUser();
 $totalStudents   = (int) $pdo->query("SELECT COUNT(*) FROM Students")->fetchColumn();
@@ -188,7 +188,7 @@ $adminPageTitle = 'Dashboard';
                 </div>
                 <div class="queue-card-footer">
                     <b><?= htmlspecialchars($estimatedWait) ?></b>
-                    <span>Chat limit: <?= CHAT_ACTIVE_LIMIT ?> active</span>
+                    <span>Chat limit: <?= CHAT_ACTIVE_LIMIT ?> students</span>
                 </div>
             </section>
         </aside>

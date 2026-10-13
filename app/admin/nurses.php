@@ -1,7 +1,12 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
+
+// Admins manage the whole directory; a signed-in nurse may only switch their own duty status.
+$canManageNurses = isAdmin();
+$viewerNurseId = isNurse() ? (int) $_SESSION['user_id'] : 0;
+$nurseAccountsReady = ensureNurseAccountSchema();
 
 $nurseErrors = [];
 $nurseAction = '';
@@ -14,6 +19,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         && str_contains((string) ($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json');
 
     try {
+        if (!$canManageNurses
+            && ($nurseAction !== 'toggle_nurse_duty' || (int) ($_POST['nurse_id'] ?? 0) !== $viewerNurseId)) {
+            throw new InvalidArgumentException('You can only change your own duty status.');
+        }
+
         if ($nurseAction === 'add_nurse') {
             createNurse($pdo, $_POST, (int) $_SESSION['user_id']);
             header('Location: nurses.php?success=added');
@@ -21,13 +31,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($nurseAction === 'edit_nurse') {
-            updateNurse(
+            $updateResult = updateNurse(
                 $pdo,
                 (int) ($_POST['nurse_id'] ?? 0),
                 $_POST,
                 (int) $_SESSION['user_id']
             );
-            header('Location: nurses.php?success=updated');
+            header('Location: nurses.php?success=' . ($updateResult['password_reset'] ? 'updated_reset' : 'updated'));
             exit;
         }
 
@@ -92,12 +102,16 @@ $nurses = fetchNurses($pdo);
 $totalNurses = count($nurses);
 $onDutyNurses = countNursesOnDuty($pdo);
 $offDutyNurses = max(0, $totalNurses - $onDutyNurses);
-$addDialogHasError = $nurseErrors !== [] && $nurseAction === 'add_nurse';
-$editDialogHasError = $nurseErrors !== [] && $nurseAction === 'edit_nurse';
+// The add/edit dialogs only exist for admins, so a refused request from a nurse shows as a page alert.
+$addDialogHasError = $canManageNurses && $nurseErrors !== [] && $nurseAction === 'add_nurse';
+$editDialogHasError = $canManageNurses && $nurseErrors !== [] && $nurseAction === 'edit_nurse';
 
 $successMessages = [
-    'added' => 'Nurse added to the directory.',
+    'added' => $nurseAccountsReady
+        ? 'Nurse added. They can sign in with their username and the default password ' . DEFAULT_NURSE_PASSWORD . ', which they must change at first sign-in.'
+        : 'Nurse added to the directory.',
     'updated' => 'Nurse details updated.',
+    'updated_reset' => 'Nurse details updated. Their password is now the default (' . DEFAULT_NURSE_PASSWORD . ') and must be changed at their next sign-in.',
     'deleted' => 'Nurse removed from the directory.',
     'duty_updated' => 'Nurse duty status updated.',
 ];
@@ -124,11 +138,15 @@ $adminBreadcrumbTrail = ['Nurses'];
         <div class="nurses-page-heading">
             <div>
                 <h1>Nurses</h1>
-                <p>Manage the clinic team and control who is currently on duty.</p>
+                <p><?= $canManageNurses
+                    ? 'Manage the clinic team and control who is currently on duty.'
+                    : 'See who is on duty, and switch your own duty status and campus.' ?></p>
             </div>
-            <button type="button" class="btn btn-success admin-panel-action nurses-add-button" data-nurse-dialog-open="add-nurse-dialog">
-                + Add Nurse
-            </button>
+            <?php if ($canManageNurses): ?>
+                <button type="button" class="btn btn-success admin-panel-action nurses-add-button" data-nurse-dialog-open="add-nurse-dialog">
+                    + Add Nurse
+                </button>
+            <?php endif; ?>
         </div>
 
         <?php if ($successMessage !== ''): ?>
@@ -179,23 +197,54 @@ $adminBreadcrumbTrail = ['Nurses'];
                                 <th>Nurse</th>
                                 <th>Position</th>
                                 <th>License number</th>
+                                <?php if ($canManageNurses && $nurseAccountsReady): ?><th>Sign-in</th><?php endif; ?>
                                 <th>Status</th>
                                 <th>Duty control</th>
-                                <th>Actions</th>
+                                <?php if ($canManageNurses): ?><th>Actions</th><?php endif; ?>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($nurses as $nurse): ?>
-                                <?php $isOnDuty = (int) $nurse['IsOnDuty'] === 1; ?>
+                                <?php
+                                    $isOnDuty = (int) $nurse['IsOnDuty'] === 1;
+                                    $isOwnRow = $viewerNurseId === (int) $nurse['NurseID'];
+                                    $canToggle = $canManageNurses || $isOwnRow;
+                                ?>
                                 <tr data-nurse-row="<?= (int) $nurse['NurseID'] ?>">
                                     <td data-label="Nurse">
+                                        <?php
+                                            $nursePhotoPath = trim((string) ($nurse['ProfileImagePath'] ?? ''));
+                                            $nursePhotoFile = $nursePhotoPath !== '' ? profileImageAbsolutePath($nursePhotoPath) : null;
+                                            $nursePhotoUrl = $nursePhotoFile !== null && is_file($nursePhotoFile) ? profileImageUrl($nursePhotoPath, getBasePath()) : null;
+                                        ?>
                                         <span class="nurse-name-cell">
-                                            <span><?= studentDashboardIcon('nurse') ?></span>
+                                            <span class="<?= $nursePhotoUrl ? 'has-photo' : '' ?>">
+                                                <?php if ($nursePhotoUrl): ?>
+                                                    <img src="<?= htmlspecialchars($nursePhotoUrl) ?>" alt="" loading="lazy">
+                                                <?php else: ?>
+                                                    <?= studentDashboardIcon('nurse') ?>
+                                                <?php endif; ?>
+                                            </span>
                                             <strong><?= htmlspecialchars($nurse['FullName']) ?></strong>
+                                            <?php if ($isOwnRow): ?><small class="nurse-you-badge">You</small><?php endif; ?>
                                         </span>
                                     </td>
                                     <td data-label="Position"><?= htmlspecialchars($nurse['Position']) ?></td>
                                     <td data-label="License number"><?= htmlspecialchars($nurse['LicenseNumber'] ?: '—') ?></td>
+                                    <?php if ($canManageNurses && $nurseAccountsReady): ?>
+                                        <td data-label="Sign-in" class="nurse-signin-cell">
+                                            <?php if (!empty($nurse['Username']) && (int) $nurse['HasPassword'] === 1): ?>
+                                                <strong><?= htmlspecialchars($nurse['Username']) ?></strong>
+                                                <?php if ((int) $nurse['MustChangePassword'] === 1): ?>
+                                                    <small class="is-pending">Still on the default password</small>
+                                                <?php else: ?>
+                                                    <small>Own password set</small>
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <small class="is-pending">No sign-in yet. Use Edit to add a username.</small>
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php endif; ?>
                                     <td data-label="Status">
                                         <span class="nurse-duty-status <?= $isOnDuty ? 'is-on-duty' : 'is-off-duty' ?>" data-nurse-duty-status>
                                             <?= $isOnDuty ? 'On duty' : 'Off duty' ?>
@@ -206,6 +255,7 @@ $adminBreadcrumbTrail = ['Nurses'];
                                         </small>
                                     </td>
                                     <td data-label="Duty control">
+                                        <?php if ($canToggle): ?>
                                         <form method="POST" class="nurse-duty-form" data-nurse-duty-form>
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                                             <input type="hidden" name="action" value="toggle_nurse_duty">
@@ -221,14 +271,19 @@ $adminBreadcrumbTrail = ['Nurses'];
                                                 <span class="nurse-duty-toggle-track" aria-hidden="true"><span></span></span>
                                             </button>
                                         </form>
+                                        <?php else: ?>
+                                            <span class="nurse-duty-locked" title="Only <?= htmlspecialchars($nurse['FullName'], ENT_QUOTES) ?> or an administrator can change this">—</span>
+                                        <?php endif; ?>
                                     </td>
+                                    <?php if ($canManageNurses): ?>
                                     <td data-label="Actions" class="nurse-row-actions">
                                         <button type="button" class="btn nurse-edit-button"
                                                 data-nurse-edit
                                                 data-nurse-id="<?= (int) $nurse['NurseID'] ?>"
                                                 data-nurse-name="<?= htmlspecialchars($nurse['FullName'], ENT_QUOTES) ?>"
                                                 data-nurse-position="<?= htmlspecialchars($nurse['Position'], ENT_QUOTES) ?>"
-                                                data-nurse-license="<?= htmlspecialchars($nurse['LicenseNumber'] ?? '', ENT_QUOTES) ?>">
+                                                data-nurse-license="<?= htmlspecialchars($nurse['LicenseNumber'] ?? '', ENT_QUOTES) ?>"
+                                                data-nurse-username="<?= htmlspecialchars($nurse['Username'] ?? '', ENT_QUOTES) ?>">
                                             Edit
                                         </button>
                                         <form method="POST" class="delete-form nurse-delete-form"
@@ -242,6 +297,7 @@ $adminBreadcrumbTrail = ['Nurses'];
                                             </button>
                                         </form>
                                     </td>
+                                    <?php endif; ?>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -256,6 +312,7 @@ $adminBreadcrumbTrail = ['Nurses'];
             <?php endif; ?>
         </section>
 
+        <?php if ($canManageNurses): ?>
         <dialog class="nurse-dialog" id="add-nurse-dialog" aria-labelledby="add-nurse-title" aria-describedby="add-nurse-description" <?= $addDialogHasError ? 'data-nurse-dialog-auto-open' : '' ?>>
             <div class="nurse-dialog-shell">
                 <div class="nurse-dialog-heading">
@@ -286,6 +343,13 @@ $adminBreadcrumbTrail = ['Nurses'];
                         <span>License number</span>
                         <input id="add-nurse-license" type="text" name="license_number" value="<?= $addDialogHasError ? htmlspecialchars((string) ($_POST['license_number'] ?? '')) : '' ?>" maxlength="80" autocomplete="off">
                     </label>
+                    <?php if ($nurseAccountsReady): ?>
+                        <label for="add-nurse-username">
+                            <span>Sign-in username</span>
+                            <input id="add-nurse-username" type="text" name="username" value="<?= $addDialogHasError ? htmlspecialchars((string) ($_POST['username'] ?? '')) : '' ?>" minlength="3" maxlength="50" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+                        </label>
+                        <p class="nurse-dialog-note">Starts with a letter. The nurse signs in with this username and the default password <strong><?= htmlspecialchars(DEFAULT_NURSE_PASSWORD) ?></strong>, then must choose a new password before using the portal.</p>
+                    <?php endif; ?>
                     <label class="nurse-initial-duty" for="add-nurse-duty">
                         <input id="add-nurse-duty" type="checkbox" name="is_on_duty" value="1" data-add-nurse-duty <?= $addDialogHasError && (int) ($_POST['is_on_duty'] ?? 0) === 1 ? 'checked' : '' ?>>
                         <span>Mark this nurse as on duty</span>
@@ -307,6 +371,7 @@ $adminBreadcrumbTrail = ['Nurses'];
                 </form>
             </div>
         </dialog>
+        <?php endif; ?>
 
         <dialog class="nurse-dialog" id="nurse-campus-dialog" aria-labelledby="nurse-campus-title" aria-describedby="nurse-campus-description" data-nurse-campus-dialog>
             <div class="nurse-dialog-shell">
@@ -339,6 +404,7 @@ $adminBreadcrumbTrail = ['Nurses'];
             </div>
         </dialog>
 
+        <?php if ($canManageNurses): ?>
         <dialog class="nurse-dialog" id="edit-nurse-dialog" aria-labelledby="edit-nurse-title" aria-describedby="edit-nurse-description" <?= $editDialogHasError ? 'data-nurse-dialog-auto-open' : '' ?>>
             <div class="nurse-dialog-shell">
                 <div class="nurse-dialog-heading">
@@ -370,6 +436,17 @@ $adminBreadcrumbTrail = ['Nurses'];
                         <span>License number</span>
                         <input id="edit-nurse-license" type="text" name="license_number" value="<?= $editDialogHasError ? htmlspecialchars((string) ($_POST['license_number'] ?? '')) : '' ?>" maxlength="80" autocomplete="off" data-edit-nurse-license>
                     </label>
+                    <?php if ($nurseAccountsReady): ?>
+                        <label for="edit-nurse-username">
+                            <span>Sign-in username</span>
+                            <input id="edit-nurse-username" type="text" name="username" value="<?= $editDialogHasError ? htmlspecialchars((string) ($_POST['username'] ?? '')) : '' ?>" maxlength="50" autocomplete="off" autocapitalize="none" spellcheck="false" data-edit-nurse-username>
+                        </label>
+                        <label class="nurse-initial-duty" for="edit-nurse-reset">
+                            <input id="edit-nurse-reset" type="checkbox" name="reset_password" value="1" data-edit-nurse-reset <?= $editDialogHasError && (int) ($_POST['reset_password'] ?? 0) === 1 ? 'checked' : '' ?>>
+                            <span>Reset password to the default</span>
+                        </label>
+                        <p class="nurse-dialog-note">A reset sets the password back to <strong><?= htmlspecialchars(DEFAULT_NURSE_PASSWORD) ?></strong> and the nurse must choose a new one at their next sign-in. Adding a username to a nurse who had none gives them that default password too.</p>
+                    <?php endif; ?>
                     <div class="nurse-dialog-actions">
                         <button type="button" class="btn btn-secondary" data-nurse-dialog-close>Cancel</button>
                         <button type="submit" class="btn btn-success">Save changes</button>
@@ -377,6 +454,7 @@ $adminBreadcrumbTrail = ['Nurses'];
                 </form>
             </div>
         </dialog>
+        <?php endif; ?>
     </div>
 
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>

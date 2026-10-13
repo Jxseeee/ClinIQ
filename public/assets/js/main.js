@@ -655,6 +655,10 @@ function initNurseManagement() {
             editDialog.querySelector('[data-edit-nurse-name]').value = this.dataset.nurseName || '';
             editDialog.querySelector('[data-edit-nurse-position]').value = this.dataset.nursePosition || '';
             editDialog.querySelector('[data-edit-nurse-license]').value = this.dataset.nurseLicense || '';
+            var usernameField = editDialog.querySelector('[data-edit-nurse-username]');
+            if (usernameField) usernameField.value = this.dataset.nurseUsername || '';
+            var resetField = editDialog.querySelector('[data-edit-nurse-reset]');
+            if (resetField) resetField.checked = false;
             openDialog(editDialog, this);
         });
     });

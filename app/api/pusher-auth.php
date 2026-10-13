@@ -10,6 +10,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Nurses answer chats like admins, once they have replaced the default password.
+if (nurseAccessBlocked()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Change your default password before using chat.']);
+    exit;
+}
+
 // Students must change their default password and complete the clinic form before using chat.
 if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
     http_response_code(403);

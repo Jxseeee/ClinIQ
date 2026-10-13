@@ -1,7 +1,12 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
+if (isNurse()) {
+    // Nurses get a smaller Settings page: their directory details are read-only and only the password can change.
+    require __DIR__ . '/../includes/nurse-settings-page.php';
+    exit;
+}
 
 $allowedTabs = ['profile', 'account'];
 $requestedTab = (string) ($_GET['tab'] ?? 'profile');

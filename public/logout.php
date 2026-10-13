@@ -8,9 +8,11 @@ $tokenValid = is_string($token) && $token !== '' && hash_equals($_SESSION['csrf_
 
 if (isLoggedIn() && !$tokenValid) {
     // Pages redirect here without a token when the signed-in account no longer exists; let those through.
-    $accountCheck = $_SESSION['role'] === 'admin'
-        ? $pdo->prepare('SELECT 1 FROM Admins WHERE AdminID = ?')
-        : $pdo->prepare('SELECT 1 FROM Students WHERE StudentID = ?');
+    $accountCheck = match ($_SESSION['role']) {
+        'admin' => $pdo->prepare('SELECT 1 FROM Admins WHERE AdminID = ?'),
+        'nurse' => $pdo->prepare('SELECT 1 FROM Nurses WHERE NurseID = ?'),
+        default => $pdo->prepare('SELECT 1 FROM Students WHERE StudentID = ?'),
+    };
     $accountCheck->execute([$_SESSION['user_id']]);
 
     if ($accountCheck->fetchColumn()) {
@@ -35,7 +37,7 @@ if (isLoggedIn() && !$tokenValid) {
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                 <div class="form-actions">
                     <button type="submit" class="btn btn-success">Sign out</button>
-                    <a href="<?= htmlspecialchars($basePath . ($_SESSION['role'] === 'admin' ? '/public/index.php' : '/students/index.php')) ?>" class="btn btn-secondary">Cancel</a>
+                    <a href="<?= htmlspecialchars($basePath . (in_array($_SESSION['role'], CLINIC_STAFF_ROLES, true) ? '/public/index.php' : '/students/index.php')) ?>" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
         </div>

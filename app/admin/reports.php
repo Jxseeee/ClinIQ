@@ -1,13 +1,19 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $reportErrors = [];
 $reportAction = '';
+// Nurses can read every report; only admins change inventory or visit statuses.
+$canManageReports = isAdmin();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrfToken();
+    if (!$canManageReports) {
+        http_response_code(403);
+        die('Only administrators can change medicine inventory or visit records.');
+    }
     $reportAction = (string) ($_POST['action'] ?? '');
 
     try {
@@ -243,6 +249,7 @@ $adminBreadcrumbTrail = ['Reports'];
             </div>
             <div class="alert alert-danger" data-live-filter-error hidden></div>
 
+            <?php if ($canManageReports): ?>
             <div class="reports-management-tools" aria-label="Medicine inventory actions">
                 <button type="button" class="btn reports-action-button" data-report-dialog-open="add-medicine-dialog" aria-haspopup="dialog" aria-controls="add-medicine-dialog">
                     <?= studentDashboardIcon('plus') ?> Add new medicine
@@ -341,6 +348,7 @@ $adminBreadcrumbTrail = ['Reports'];
                     </form>
                 </div>
             </dialog>
+            <?php endif; ?>
 
             <div class="reports-table-wrap" data-medicine-results>
                 <table class="reports-table medicine-report-table">
@@ -358,7 +366,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                 <td data-label="Description"><?= htmlspecialchars($medicine['Description'] ?: '—') ?></td>
                                 <td data-label="Level"><span class="stock-level <?= $isLowStock ? 'is-low' : 'is-ok' ?>"><?= $isLowStock ? 'Low stock' : 'In stock' ?></span></td>
                                 <td data-label="Actions" class="reports-table-actions">
-                                    <?php if ($medicineArchiveInstalled): ?>
+                                    <?php if ($medicineArchiveInstalled && $canManageReports): ?>
                                         <form method="POST" class="delete-form reports-row-action-form" data-delete-title="Archive medicine" data-delete-message="Archive <?= htmlspecialchars($medicine['Name']) ?>? It will be hidden from the inventory and Check In until you restore it." data-confirm-label="Archive" data-confirm-class="btn-warning">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                                             <input type="hidden" name="action" value="archive_medicine">
@@ -405,6 +413,9 @@ $adminBreadcrumbTrail = ['Reports'];
                                     <td data-label="Dosage"><?= htmlspecialchars($medicine['Dosage'] ?: '—') ?></td>
                                     <td data-label="Archived"><?= $medicine['ArchivedAt'] ? date('M d, Y', strtotime($medicine['ArchivedAt'])) : '—' ?></td>
                                     <td data-label="Actions" class="reports-table-actions">
+                                        <?php if (!$canManageReports): ?>
+                                            —
+                                        <?php else: ?>
                                         <form method="POST" class="reports-row-action-form">
                                             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                                             <input type="hidden" name="action" value="restore_medicine">
@@ -414,6 +425,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                                 <span>Restore</span>
                                             </button>
                                         </form>
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -475,6 +487,7 @@ $adminBreadcrumbTrail = ['Reports'];
                     ? (string) $_POST['visit_current_status']
                     : 'open';
             ?>
+            <?php if ($canManageReports): ?>
             <dialog class="reports-dialog" id="visit-status-dialog" aria-labelledby="visit-status-dialog-title" aria-describedby="visit-status-dialog-description" <?= $visitStatusDialogHasError ? 'data-report-dialog-auto-open' : '' ?>>
                 <div class="reports-dialog-shell">
                     <div class="reports-dialog-heading">
@@ -526,6 +539,7 @@ $adminBreadcrumbTrail = ['Reports'];
                     </form>
                 </div>
             </dialog>
+            <?php endif; ?>
 
             <div class="visit-report-results" data-visit-results>
             <?php if ($visitDateError !== ''): ?>
@@ -627,6 +641,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                             <span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>" title="The status can be edited after the patient is checked out"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span>
                                         <?php else: ?>
                                             <span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span>
+                                            <?php if ($canManageReports): ?>
                                             <button type="button" class="visit-status-edit"
                                                     data-report-dialog-open="visit-status-dialog"
                                                     data-visit-id="<?= (int) $visit['VisitID'] ?>"
@@ -637,6 +652,7 @@ $adminBreadcrumbTrail = ['Reports'];
                                                     aria-label="Edit status for <?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? '')), ENT_QUOTES) ?>">
                                                 Edit
                                             </button>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </div>
                                 </td>

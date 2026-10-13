@@ -1,20 +1,31 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
-$auditViewerRole = 'admin';
+$auditViewerRole = isNurse() ? 'nurse' : 'admin';
 $auditViewerId = (int) $_SESSION['user_id'];
 $auditFilters = auditLogRequestFilters();
-$auditStudentAccounts = auditStudentAccounts($pdo);
+$auditStudentAccounts = $auditViewerRole === 'admin' ? auditStudentAccounts($pdo) : [];
+$auditNurseAccounts = $auditViewerRole === 'admin' ? auditNurseAccounts($pdo) : [];
 $auditQuery = $auditFilters;
 $auditSelectedStudentId = null;
-if ($auditFilters['account'] === 'mine') {
+$auditSelectedNurseId = null;
+if ($auditViewerRole === 'nurse') {
+    // A nurse only sees entries they performed or that concern their own account; the ID comes from the session.
+    $auditFilters['account'] = '';
+    $auditQuery = $auditFilters;
+    $auditQuery['involving_nurse_id'] = $auditViewerId;
+} elseif ($auditFilters['account'] === 'mine') {
     $auditQuery['involving_admin_id'] = $auditViewerId;
 } elseif (str_starts_with($auditFilters['account'], 'student:')) {
     $auditSelectedStudentId = (int) substr($auditFilters['account'], 8);
     $auditQuery['subject_role'] = 'student';
     $auditQuery['subject_id'] = $auditSelectedStudentId;
+} elseif (str_starts_with($auditFilters['account'], 'nurse:')) {
+    // A nurse's log: what they did (check-ins, chats, duty changes) plus changes made to their account.
+    $auditSelectedNurseId = (int) substr($auditFilters['account'], 6);
+    $auditQuery['involving_nurse_id'] = $auditSelectedNurseId;
 }
 
 $auditPerPage = 50;
@@ -45,7 +56,9 @@ $adminBreadcrumbTrail = ['Audit Log'];
         <div class="reports-page-heading">
             <div>
                 <h1>Audit Log</h1>
-                <p>Review who did what, to which account, and when. Entries cannot be edited or deleted.</p>
+                <p><?= $auditViewerRole === 'nurse'
+                    ? 'Everything you did in the clinic portal, and changes made to your account. Entries cannot be edited or deleted.'
+                    : 'Review who did what, to which account, and when. Entries cannot be edited or deleted.' ?></p>
             </div>
         </div>
 
