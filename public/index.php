@@ -32,7 +32,7 @@ $adminPageTitle = 'Dashboard';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard</title>
+    <title><?= isNurse() ? 'Dashboard' : 'Admin Dashboard' ?></title>
     <link rel="stylesheet" href="assets/css/tailwind.css">
     <link rel="stylesheet" href="assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
@@ -40,7 +40,8 @@ $adminPageTitle = 'Dashboard';
 <body class="student-dashboard-page admin-dashboard-page dashboard-home-body antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/admin-dashboard-start.php'; ?>
 
-        <h1>Welcome, Admin</h1>
+        <?php // $adminName is the signed-in account's full name, loaded by admin-dashboard-start.php. ?>
+        <h1><?= isNurse() ? 'Hi, ' . htmlspecialchars($adminName) . '!' : 'Welcome, Admin' ?></h1>
 
         <div class="student-stat-grid admin-dashboard-stat-grid">
             <article class="student-stat-card admin-primary-stat">
