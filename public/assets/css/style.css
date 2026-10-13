@@ -7311,6 +7311,13 @@ button.birth-date-calendar-day:hover {
     resize: vertical;
 }
 
+.checkin-status-hint {
+    display: block;
+    margin: 6px 0 0;
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
 /* Locked fields (e.g. follow-up date unless the status is Follow-up, dosage/quantity until a medicine is chosen). */
 .checkin-visit-form input:disabled,
 .checkin-visit-form select:disabled {

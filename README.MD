@@ -260,6 +260,8 @@ New student accounts are created by admins only. Admin-created students use the 
 - Admin and student dashboards show nurses currently on duty and people currently in the clinic
 - `app/admin/check-in.php` searches existing students and staff, records their visit, and lists all active clinic check-ins
 - Checking out closes an open visit and immediately removes that person from the active clinic count
+- A new check-in is either **Open** or **Follow-up** (Completed can't be chosen, and the server rejects it). Checking out marks an Open visit Completed automatically; a Follow-up visit stays Follow-up and can be edited later from Reports → Visit reports
+- Check In and Check Out ask for confirmation in the app's standard confirmation popup; the check-in message names the patient and any medicine and quantity that will be deducted from stock, and the check-out message notes when an open visit will be marked Completed
 - Check-in and check-out are timestamped automatically; Time in / Time out appear in the student's visit history, the admin Check In visit records, the student record page, and Reports (open visits show "Still in clinic")
 - PHP and MySQL both use `APP_TIMEZONE` from `.env` (default `Asia/Manila`), so timestamps stay correct on servers running in UTC
 - `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls

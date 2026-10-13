@@ -681,9 +681,11 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
     if ($lengthErrors) {
         throw new InvalidArgumentException($lengthErrors[0]);
     }
-    $status = in_array(($data['status'] ?? ''), ['open', 'completed', 'follow-up'], true)
-        ? (string) $data['status']
-        : 'open';
+    // A new check-in is Open or Follow-up; an Open visit becomes Completed when the patient checks out.
+    $status = trim((string) ($data['status'] ?? '')) ?: 'open';
+    if (!in_array($status, ['open', 'follow-up'], true)) {
+        throw new InvalidArgumentException('A new check-in can only be Open or Follow-up. Open visits are completed when the patient checks out.');
+    }
     $medicineIdValue = trim((string) ($data['medicine_id'] ?? ''));
     $medicineId = $medicineIdValue === '' ? null : filter_var($medicineIdValue, FILTER_VALIDATE_INT);
     if ($medicineId === false || ($medicineId !== null && $medicineId <= 0)) {

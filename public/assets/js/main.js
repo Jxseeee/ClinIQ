@@ -422,6 +422,16 @@ function initCheckInMedicineFields() {
         syncMedicineFields(true);
     });
 
+    // The check-in confirmation mentions the medicine that will be deducted from stock.
+    if (medicine.form) {
+        medicine.form.addEventListener('confirmdialog:open', function (event) {
+            var option = medicine.options[medicine.selectedIndex];
+            if (!medicine.value || !quantity.value || !option) return;
+            event.detail.message += ' ' + quantity.value + ' × ' + (option.dataset.name || 'the selected medicine')
+                + ' will be deducted from stock.';
+        });
+    }
+
     syncMedicineFields(false);
 }
 
@@ -489,8 +499,11 @@ function initStudentNotificationPreference() {
 
 /* ── 3. Delete confirmation modal ────────────────────── */
 
-// Listens at the document level (and builds the popup on first use) so forms added later,
-// e.g. rows swapped in by a live filter, still ask for confirmation.
+// Shared confirmation popup for forms with class "delete-form" or a data-confirm attribute
+// (title/message/button from data-confirm-title, data-confirm-message, data-confirm-label,
+// data-confirm-class; data-delete-title/-message still work). Before it opens, the form receives a
+// "confirmdialog:open" event whose detail.message it may extend. Listens at the document level (and
+// builds the popup on first use) so forms added later, e.g. by a live filter, are covered too.
 function initDeleteModal() {
     var overlay = null;
     var confirmBtn = null;
@@ -541,14 +554,19 @@ function initDeleteModal() {
 
     document.addEventListener('submit', function (e) {
         var form = e.target;
-        if (!(form instanceof HTMLFormElement) || !form.classList.contains('delete-form')) return;
+        if (!(form instanceof HTMLFormElement) || e.defaultPrevented) return;
+        if (!form.classList.contains('delete-form') && !form.hasAttribute('data-confirm')) return;
 
         e.preventDefault();
         ensureOverlay();
         pendingForm = form;
         activeTrigger = document.activeElement;
-        title.textContent = form.dataset.deleteTitle || 'Confirm delete';
-        message.textContent = form.dataset.deleteMessage || 'Are you sure? This action cannot be undone.';
+        var detail = {
+            message: form.dataset.confirmMessage || form.dataset.deleteMessage || 'Are you sure? This action cannot be undone.'
+        };
+        form.dispatchEvent(new CustomEvent('confirmdialog:open', { detail: detail }));
+        title.textContent = form.dataset.confirmTitle || form.dataset.deleteTitle || 'Confirm delete';
+        message.textContent = detail.message;
         confirmBtn.textContent = form.dataset.confirmLabel || 'Delete';
         confirmBtn.className = 'btn ' + (form.dataset.confirmClass || 'btn-danger');
         overlay.classList.add('active');
