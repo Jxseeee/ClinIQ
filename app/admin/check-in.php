@@ -1,10 +1,11 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $checkInErrors = [];
-$clinicTimezone = new DateTimeZone('Asia/Manila');
+// The clinic time zone set from APP_TIMEZONE in app/config/database.php.
+$clinicTimezone = new DateTimeZone(date_default_timezone_get());
 $minimumFollowUpDate = new DateTimeImmutable('today', $clinicTimezone);
 $maximumFollowUpDate = $minimumFollowUpDate->modify('+30 days');
 $selectedType = in_array(($_GET['person_type'] ?? $_POST['person_type'] ?? ''), ['student', 'staff'], true)
@@ -34,7 +35,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new InvalidArgumentException('Follow-up date must be between today and 30 days ahead.');
                 }
             }
-            $checkInId = createClinicCheckIn($pdo, $selectedType, $selectedId, (int) $_SESSION['user_id'], $_POST);
+            // The visit is credited to whoever is signed in: an admin (AdminID) or a nurse (NurseID).
+            $checkInId = createClinicCheckIn(
+                $pdo,
+                $selectedType,
+                $selectedId,
+                isAdmin() ? (int) $_SESSION['user_id'] : null,
+                $_POST,
+                isNurse() ? (int) $_SESSION['user_id'] : null
+            );
             $checkedInAt = $pdo->prepare('SELECT CheckedInAt FROM ClinicCheckIns WHERE CheckInID = ?');
             $checkedInAt->execute([$checkInId]);
             $_SESSION['checkin_flash_time'] = (string) $checkedInAt->fetchColumn();

@@ -2,7 +2,7 @@
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../config/pusher.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 requireChatCapacity($pdo);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_chat_status') {
@@ -11,7 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     $status = $_POST['status'] ?? '';
 
     if (ctype_digit((string) $studentIdForStatus) && in_array($status, ['open', 'resolved'], true)) {
-        updateChatConversationStatus($pdo, (int) $studentIdForStatus, $status, (int) $_SESSION['user_id']);
+        // ResolvedByAdminID only references admins; the audit entry below records a nurse who resolves.
+        updateChatConversationStatus($pdo, (int) $studentIdForStatus, $status, isAdmin() ? (int) $_SESSION['user_id'] : null);
         auditLog(
             $pdo,
             'messages',
@@ -81,7 +82,7 @@ $adminBreadcrumbTrail = ['Messages'];
                         <strong>Student Conversations</strong>
                         <small>Manage clinic chat requests</small>
                     </div>
-                    <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
+                    <small class="student-chat-capacity">Students chatting: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                 </div>
             </div>
 

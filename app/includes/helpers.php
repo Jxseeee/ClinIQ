@@ -87,10 +87,13 @@ function fetchStudentFullProfile(PDO $pdo, int $id): ?array
 
 function fetchAnnouncements(PDO $pdo): array
 {
+    // Announcements are posted by an admin (AdminID) or a nurse (NurseID).
+    $byNurse = databaseColumnExists($pdo, 'Announcements', 'NurseID');
     $stmt = $pdo->query(
-        "SELECT a.*, ad.FullName AS AuthorName
+        "SELECT a.*, " . ($byNurse ? 'COALESCE(ad.FullName, n.FullName)' : 'ad.FullName') . " AS AuthorName
          FROM Announcements a
          LEFT JOIN Admins ad ON a.AdminID = ad.AdminID
+         " . ($byNurse ? 'LEFT JOIN Nurses n ON a.NurseID = n.NurseID' : '') . "
          ORDER BY a.CreatedAt DESC"
     );
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -143,6 +146,7 @@ function profileImageAccountConfig(string $role): array
 {
     return match ($role) {
         'admin' => ['Admins', 'AdminID'],
+        'nurse' => ['Nurses', 'NurseID'],
         'student' => ['Students', 'StudentID'],
         default => throw new InvalidArgumentException('Unsupported account role.'),
     };
@@ -336,9 +340,35 @@ function createNotification(PDO $pdo, string $targetRole, ?int $targetUserId, st
     $stmt->execute([$targetRole, $targetUserId, $type, $title, $body ?: null, $link ?: null]);
 }
 
+/**
+ * Nurses see the clinic staff feed (notifications sent to TargetRole 'admin', such as new student messages)
+ * with their own read state in NurseNotificationReads. Only notifications from after the nurse's account
+ * was created count, so a new nurse doesn't start with every older notification unread.
+ */
+function nurseNotificationsReady(PDO $pdo): bool
+{
+    return databaseTableExists($pdo, 'Notifications')
+        && ensureNurseAccountSchema()
+        && databaseTableExists($pdo, 'NurseNotificationReads');
+}
+
+const NURSE_NOTIFICATION_SCOPE = "n.TargetRole = 'admin' AND n.CreatedAt >= (SELECT CreatedAt FROM Nurses WHERE NurseID = ?)";
+
 function countUnreadNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = null): int
 {
-    if (!databaseTableExists($pdo, 'Notifications')) {
+    if ($targetRole === 'nurse') {
+        if ($targetUserId === null || !nurseNotificationsReady($pdo)) {
+            return 0;
+        }
+        $stmt = $pdo->prepare(
+            "SELECT COUNT(*) FROM Notifications n
+             WHERE " . NURSE_NOTIFICATION_SCOPE . " AND n.IsRead = 0
+               AND NOT EXISTS (SELECT 1 FROM NurseNotificationReads r WHERE r.NotificationID = n.NotificationID AND r.NurseID = ?)"
+        );
+        $stmt->execute([$targetUserId, $targetUserId]);
+        return (int) $stmt->fetchColumn();
+    }
+    if (!databaseTableExists($pdo, 'Notifications') || !in_array($targetRole, ['admin', 'student'], true)) {
         return 0;
     }
     if ($targetRole === 'student' && $targetUserId !== null && !studentNotificationsEnabled($pdo, $targetUserId)) {
@@ -365,7 +395,23 @@ function countUnreadNotifications(PDO $pdo, string $targetRole, ?int $targetUser
 
 function fetchNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = null, int $limit = 8): array
 {
-    if (!databaseTableExists($pdo, 'Notifications')) {
+    if ($targetRole === 'nurse') {
+        if ($targetUserId === null || !nurseNotificationsReady($pdo)) {
+            return [];
+        }
+        $stmt = $pdo->prepare(
+            "SELECT n.NotificationID, n.TargetRole, n.TargetUserID, n.Type, n.Title, n.Body, n.Link, n.CreatedAt,
+                    (n.IsRead = 1 OR r.NurseID IS NOT NULL) AS IsRead
+             FROM Notifications n
+             LEFT JOIN NurseNotificationReads r ON r.NotificationID = n.NotificationID AND r.NurseID = ?
+             WHERE " . NURSE_NOTIFICATION_SCOPE . "
+             ORDER BY n.CreatedAt DESC
+             LIMIT " . (int) $limit
+        );
+        $stmt->execute([$targetUserId, $targetUserId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+    if (!databaseTableExists($pdo, 'Notifications') || !in_array($targetRole, ['admin', 'student'], true)) {
         return [];
     }
     if ($targetRole === 'student' && $targetUserId !== null && !studentNotificationsEnabled($pdo, $targetUserId)) {
@@ -406,7 +452,19 @@ function fetchNotifications(PDO $pdo, string $targetRole, ?int $targetUserId = n
 
 function markNotificationsRead(PDO $pdo, string $targetRole, ?int $targetUserId = null): void
 {
-    if (!databaseTableExists($pdo, 'Notifications')) {
+    if ($targetRole === 'nurse') {
+        // Mark read for this nurse only.
+        if ($targetUserId !== null && nurseNotificationsReady($pdo)) {
+            $stmt = $pdo->prepare(
+                "INSERT IGNORE INTO NurseNotificationReads (NotificationID, NurseID)
+                 SELECT n.NotificationID, ? FROM Notifications n WHERE " . NURSE_NOTIFICATION_SCOPE . " AND n.IsRead = 0"
+            );
+            $stmt->execute([$targetUserId, $targetUserId]);
+        }
+        return;
+    }
+    // An unknown role must never fall through to the student query.
+    if (!databaseTableExists($pdo, 'Notifications') || !in_array($targetRole, ['admin', 'student'], true)) {
         return;
     }
 
@@ -439,6 +497,15 @@ function clinicVisitCheckInSql(PDO $pdo): array
          (ci.CheckInID IS NOT NULL AND ci.CheckedOutAt IS NULL) AS IsInClinic",
         'LEFT JOIN ClinicCheckIns ci ON ci.VisitID = v.VisitID',
     ];
+}
+
+/** "Consulted by" for visit queries: the admin who recorded the visit, or the nurse when a nurse did. */
+function clinicVisitConsultedBySql(PDO $pdo): array
+{
+    if (!databaseColumnExists($pdo, 'ClinicVisits', 'NurseID')) {
+        return ['a.FullName AS AdminName', ''];
+    }
+    return ['COALESCE(a.FullName, cn.FullName) AS AdminName', 'LEFT JOIN Nurses cn ON cn.NurseID = v.NurseID'];
 }
 
 function visitTimesHtml(array $visit): string
@@ -518,16 +585,18 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, arr
     [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
     $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
     $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
+    [$consultedSelect, $consultedJoin] = clinicVisitConsultedBySql($pdo);
     $sql = "SELECT v.*,
                CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
                CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
                CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
                CASE WHEN v.StudentID IS NOT NULL THEN {$studentPhoto} ELSE {$staffPhoto} END AS PersonPhotoPath,
                COALESCE(v.StudentID, v.StaffID) AS PersonID,
-               a.FullName AS AdminName,
+               {$consultedSelect},
                {$checkInSelect}
             FROM ClinicVisits v
             " . CLINIC_VISIT_PEOPLE_JOINS . "
+            {$consultedJoin}
             {$checkInJoin}
             {$whereSql}
             ORDER BY v.CreatedAt DESC, v.VisitID DESC";
@@ -696,10 +765,12 @@ function fetchClinicVisitsForPerson(PDO $pdo, string $personType, int $personId)
     }
     $column = $personType === 'staff' ? 'StaffID' : 'StudentID';
     [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
+    [$consultedSelect, $consultedJoin] = clinicVisitConsultedBySql($pdo);
     $stmt = $pdo->prepare(
-        "SELECT v.*, a.FullName AS AdminName, {$checkInSelect}
+        "SELECT v.*, {$consultedSelect}, {$checkInSelect}
          FROM ClinicVisits v
          LEFT JOIN Admins a ON a.AdminID = v.AdminID
+         {$consultedJoin}
          {$checkInJoin}
          WHERE v.{$column} = ?
          ORDER BY v.CreatedAt DESC"
@@ -739,7 +810,11 @@ function fetchActiveClinicCheckIns(PDO $pdo): array
     )->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $adminId, array $data): int
+/**
+ * Exactly one of $adminId / $nurseId is the staff member recording the visit. AdminID and
+ * CheckedInByAdminID only reference admins, so a nurse's visit is stored in ClinicVisits.NurseID.
+ */
+function createClinicCheckIn(PDO $pdo, string $personType, int $personId, ?int $adminId, array $data, ?int $nurseId = null): int
 {
     if (!databaseTableExists($pdo, 'ClinicCheckIns')) {
         throw new RuntimeException('Clinic check-in storage is not installed.');
@@ -831,16 +906,16 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
 
         $studentId = $personType === 'student' ? $personId : null;
         $staffId = $personType === 'staff' ? $personId : null;
+        $recordNurse = $nurseId !== null && databaseColumnExists($pdo, 'ClinicVisits', 'NurseID');
+        $nurseColumn = $recordNurse ? 'NurseID, ' : '';
+        $nursePlaceholder = $recordNurse ? '?, ' : '';
         $visit = $pdo->prepare(
             "INSERT INTO ClinicVisits
-             (StudentID, StaffID, AdminID, Complaint, Vitals, Assessment, Treatment,
+             (StudentID, StaffID, AdminID, {$nurseColumn}Complaint, Vitals, Assessment, Treatment,
               MedicineGiven, MedicineID, MedicineDosage, MedicineQuantity, Status, Disposition, FollowUpDate)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, {$nursePlaceholder}?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
-        $visit->execute([
-            $studentId,
-            $staffId,
-            $adminId,
+        $visit->execute(array_merge([$studentId, $staffId, $adminId], $recordNurse ? [$nurseId] : [], [
             $complaint,
             trim((string) ($data['vitals'] ?? '')) ?: null,
             trim((string) ($data['assessment'] ?? '')) ?: null,
@@ -853,7 +928,7 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
             trim((string) ($data['disposition'] ?? '')) ?: null,
             // Only follow-up visits keep a follow-up date.
             $status === 'follow-up' ? (trim((string) ($data['follow_up_date'] ?? '')) ?: null) : null,
-        ]);
+        ]));
         $visitId = (int) $pdo->lastInsertId();
 
         $checkIn = $pdo->prepare(
@@ -893,7 +968,8 @@ function createClinicCheckIn(PDO $pdo, string $personType, int $personId, int $a
             'Checked in ' . $person['DisplayName'] . ' (' . $personType . ') to the clinic. Complaint: '
                 . mb_strimwidth($complaint, 0, 160, '...')
                 . ($medicineName !== null ? '. Medicine given: ' . $medicineName . ' x' . $medicineQuantity : '') . '.',
-            ['actor_role' => 'admin', 'actor_id' => $adminId, 'subject_role' => $personType === 'staff' ? 'admin' : 'student', 'subject_id' => $personId]
+            ($adminId !== null ? ['actor_role' => 'admin', 'actor_id' => $adminId] : [])
+                + ['subject_role' => $personType === 'staff' ? 'admin' : 'student', 'subject_id' => $personId]
         );
         $pdo->commit();
         return $checkInId;
@@ -1091,8 +1167,11 @@ function fetchNurses(PDO $pdo): array
     }
 
     $campusColumn = ensureNurseDutyCampusColumn($pdo) ? 'DutyCampus' : 'NULL AS DutyCampus';
+    $accountColumns = ensureNurseAccountSchema()
+        ? 'Username, MustChangePassword, Password IS NOT NULL AS HasPassword, ProfileImagePath'
+        : 'NULL AS Username, NULL AS MustChangePassword, 0 AS HasPassword, NULL AS ProfileImagePath';
     return $pdo->query(
-        "SELECT NurseID, FullName, Position, LicenseNumber, IsOnDuty, {$campusColumn}, CreatedAt, UpdatedAt
+        "SELECT NurseID, FullName, Position, LicenseNumber, IsOnDuty, {$campusColumn}, {$accountColumns}, CreatedAt, UpdatedAt
          FROM Nurses
          ORDER BY IsOnDuty DESC, FullName ASC"
     )->fetchAll(PDO::FETCH_ASSOC);
@@ -1123,6 +1202,50 @@ function validateNurseData(array $data): array
     return [$fullName, $position, $licenseNumber !== '' ? $licenseNumber : null];
 }
 
+/**
+ * Nurse sign-in name: 3-50 characters, starting with a letter (so it can never be mistaken for a
+ * Student ID), then letters, digits, dots, underscores or dashes. Must not belong to an admin or
+ * another nurse. Returns null when left blank.
+ */
+function validateNurseUsername(PDO $pdo, ?string $username, ?int $excludeNurseId = null): ?string
+{
+    $username = trim((string) $username);
+    if ($username === '') {
+        return null;
+    }
+    if (!preg_match('/^[A-Za-z][A-Za-z0-9._-]{2,49}$/', $username)) {
+        throw new InvalidArgumentException('Username must be 3-50 characters, start with a letter, and use only letters, numbers, dots, underscores, or dashes.');
+    }
+    $admin = $pdo->prepare('SELECT COUNT(*) FROM Admins WHERE LOWER(Username) = LOWER(?)');
+    $admin->execute([$username]);
+    $nurse = $pdo->prepare('SELECT COUNT(*) FROM Nurses WHERE LOWER(Username) = LOWER(?) AND NurseID <> ?');
+    $nurse->execute([$username, (int) $excludeNurseId]);
+    if ((int) $admin->fetchColumn() > 0 || (int) $nurse->fetchColumn() > 0) {
+        throw new InvalidArgumentException('That username is already taken. Choose a different one.');
+    }
+    return $username;
+}
+
+/** Audit context pointing at a nurse account (a clinic-wide entry if nurse accounts aren't installed). */
+function nurseAuditSubject(int $nurseId, ?string $name = null): array
+{
+    if (!ensureNurseAccountSchema()) {
+        return ['subject_role' => null];
+    }
+    $context = ['subject_role' => 'nurse', 'subject_id' => $nurseId];
+    if ($name !== null) {
+        $context['subject_name'] = $name;
+    }
+    return $context;
+}
+
+/** Gives a nurse the default password and requires them to replace it at their next sign-in. */
+function resetNursePassword(PDO $pdo, int $nurseId): void
+{
+    $stmt = $pdo->prepare('UPDATE Nurses SET Password = ?, MustChangePassword = 1 WHERE NurseID = ?');
+    $stmt->execute([password_hash(DEFAULT_NURSE_PASSWORD, PASSWORD_DEFAULT), $nurseId]);
+}
+
 function createNurse(PDO $pdo, array $data, int $adminId): int
 {
     if (!databaseTableExists($pdo, 'Nurses')) {
@@ -1133,32 +1256,41 @@ function createNurse(PDO $pdo, array $data, int $adminId): int
     $isOnDuty = (int) ($data['is_on_duty'] ?? 0) === 1 ? 1 : 0;
     // A nurse added as on duty must be assigned to a campus.
     $campus = $isOnDuty ? validateDutyCampus($data['duty_campus'] ?? null) : null;
-
-    if (ensureNurseDutyCampusColumn($pdo)) {
-        $stmt = $pdo->prepare(
-            "INSERT INTO Nurses (FullName, Position, LicenseNumber, IsOnDuty, DutyCampus, CreatedByAdminID)
-             VALUES (?, ?, ?, ?, ?, ?)"
-        );
-        $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $campus, $adminId]);
-    } else {
-        $stmt = $pdo->prepare(
-            "INSERT INTO Nurses (FullName, Position, LicenseNumber, IsOnDuty, CreatedByAdminID)
-             VALUES (?, ?, ?, ?, ?)"
-        );
-        $stmt->execute([$fullName, $position, $licenseNumber, $isOnDuty, $adminId]);
+    // Every new nurse gets a sign-in: their username plus the default password, which they must change first.
+    $accountsReady = ensureNurseAccountSchema();
+    $username = $accountsReady ? validateNurseUsername($pdo, $data['username'] ?? null) : null;
+    if ($accountsReady && $username === null) {
+        throw new InvalidArgumentException('Choose the username this nurse will sign in with.');
     }
+
+    $columns = ['FullName', 'Position', 'LicenseNumber', 'IsOnDuty', 'CreatedByAdminID'];
+    $values = [$fullName, $position, $licenseNumber, $isOnDuty, $adminId];
+    if (ensureNurseDutyCampusColumn($pdo)) {
+        $columns[] = 'DutyCampus';
+        $values[] = $campus;
+    }
+    if ($accountsReady) {
+        array_push($columns, 'Username', 'Password', 'MustChangePassword');
+        array_push($values, $username, password_hash(DEFAULT_NURSE_PASSWORD, PASSWORD_DEFAULT), 1);
+    }
+    $stmt = $pdo->prepare(
+        'INSERT INTO Nurses (' . implode(', ', $columns) . ') VALUES (' . implode(', ', array_fill(0, count($columns), '?')) . ')'
+    );
+    $stmt->execute($values);
     $nurseId = (int) $pdo->lastInsertId();
     auditLog(
         $pdo,
         'nurses',
         'nurse.added',
-        'Added nurse ' . $fullName . ' (' . $position . ')' . ($isOnDuty ? ', on duty at ' . $campus : '') . '.',
-        ['subject_role' => null]
+        'Added nurse ' . $fullName . ' (' . $position . ')' . ($isOnDuty ? ', on duty at ' . $campus : '')
+            . ($username !== null ? ', with sign-in username "' . $username . '" and the default password' : '') . '.',
+        nurseAuditSubject($nurseId)
     );
     return $nurseId;
 }
 
-function updateNurse(PDO $pdo, int $nurseId, array $data, int $adminId): void
+/** Returns ['password_reset' => bool] so the page can say whether the default password was issued. */
+function updateNurse(PDO $pdo, int $nurseId, array $data, int $adminId): array
 {
     if (!databaseTableExists($pdo, 'Nurses')) {
         throw new RuntimeException('Nurse directory storage is not installed.');
@@ -1168,21 +1300,59 @@ function updateNurse(PDO $pdo, int $nurseId, array $data, int $adminId): void
     }
 
     [$fullName, $position, $licenseNumber] = validateNurseData($data);
-    $stmt = $pdo->prepare(
-        "UPDATE Nurses SET FullName = ?, Position = ?, LicenseNumber = ? WHERE NurseID = ?"
+    $accountsReady = ensureNurseAccountSchema();
+    $current = $pdo->prepare(
+        'SELECT FullName, ' . ($accountsReady ? 'Username, Password' : 'NULL AS Username, NULL AS Password')
+        . ' FROM Nurses WHERE NurseID = ?'
     );
-    $stmt->execute([$fullName, $position, $licenseNumber, $nurseId]);
-    if ($stmt->rowCount() === 0) {
-        $exists = $pdo->prepare("SELECT COUNT(*) FROM Nurses WHERE NurseID = ?");
-        $exists->execute([$nurseId]);
-        if (!(bool) $exists->fetchColumn()) {
-            throw new InvalidArgumentException('The selected nurse was not found.');
-        }
-    } else {
-        auditLog($pdo, 'nurses', 'nurse.updated', 'Updated nurse details for ' . $fullName . '.', ['subject_role' => null]);
+    $current->execute([$nurseId]);
+    $existing = $current->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) {
+        throw new InvalidArgumentException('The selected nurse was not found.');
     }
-}
+    // Validate the username before writing anything, so a taken name doesn't half-save the form.
+    $username = $accountsReady ? validateNurseUsername($pdo, $data['username'] ?? null, $nurseId) : null;
+    if ($accountsReady && $username === null && $existing['Username'] !== null) {
+        throw new InvalidArgumentException('A nurse who can sign in must keep a username.');
+    }
+    $resetRequested = (int) ($data['reset_password'] ?? 0) === 1;
+    if ($resetRequested && $username === null) {
+        throw new InvalidArgumentException('Give this nurse a username before resetting their password.');
+    }
 
+    $stmt = $pdo->prepare('UPDATE Nurses SET FullName = ?, Position = ?, LicenseNumber = ? WHERE NurseID = ?');
+    $stmt->execute([$fullName, $position, $licenseNumber, $nurseId]);
+    if ($stmt->rowCount() > 0) {
+        auditLog($pdo, 'nurses', 'nurse.updated', 'Updated nurse details for ' . $fullName . '.', nurseAuditSubject($nurseId));
+    }
+
+    $passwordReset = false;
+    if ($accountsReady && $username !== null) {
+        if ($username !== $existing['Username']) {
+            $pdo->prepare('UPDATE Nurses SET Username = ? WHERE NurseID = ?')->execute([$username, $nurseId]);
+            auditLog(
+                $pdo,
+                'security',
+                'nurse.username_changed',
+                'Set the sign-in username for nurse ' . $fullName . ' to "' . $username . '".',
+                nurseAuditSubject($nurseId)
+            );
+        }
+        // A nurse added before accounts existed gets the default password together with their first username.
+        if ($existing['Password'] === null || $resetRequested) {
+            resetNursePassword($pdo, $nurseId);
+            $passwordReset = true;
+            auditLog(
+                $pdo,
+                'security',
+                'nurse.password_reset',
+                "Set the nurse's password to the default (must be changed at next sign-in).",
+                nurseAuditSubject($nurseId)
+            );
+        }
+    }
+    return ['password_reset' => $passwordReset];
+}
 /** Turning a nurse on duty requires a campus; turning them off clears it. Returns the on-duty count. */
 function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId, ?string $campus = null): int
 {
@@ -1210,12 +1380,15 @@ function setNurseDutyStatus(PDO $pdo, int $nurseId, bool $isOnDuty, int $adminId
     } else {
         $nurseName = $pdo->prepare('SELECT FullName FROM Nurses WHERE NurseID = ?');
         $nurseName->execute([$nurseId]);
+        $isSelf = ($_SESSION['role'] ?? '') === 'nurse' && (int) ($_SESSION['user_id'] ?? 0) === $nurseId;
         auditLog(
             $pdo,
             'nurses',
             'nurse.duty_changed',
-            'Set nurse ' . $nurseName->fetchColumn() . ($isOnDuty ? ' on duty at ' . $campus . '.' : ' off duty.'),
-            ['subject_role' => null]
+            $isSelf
+                ? ($isOnDuty ? 'Went on duty at ' . $campus . '.' : 'Went off duty.')
+                : 'Set nurse ' . $nurseName->fetchColumn() . ($isOnDuty ? ' on duty at ' . $campus . '.' : ' off duty.'),
+            nurseAuditSubject($nurseId)
         );
     }
     return countNursesOnDuty($pdo);
@@ -1257,12 +1430,15 @@ function deleteNurse(PDO $pdo, int $nurseId, int $adminId): void
     $nurseName = $pdo->prepare('SELECT FullName FROM Nurses WHERE NurseID = ?');
     $nurseName->execute([$nurseId]);
     $deletedNurseName = (string) $nurseName->fetchColumn();
+    $photoPath = ensureNurseAccountSchema() ? fetchProfileImagePath($pdo, 'nurse', $nurseId) : null;
     $stmt = $pdo->prepare("DELETE FROM Nurses WHERE NurseID = ?");
     $stmt->execute([$nurseId]);
     if ($stmt->rowCount() === 0) {
         throw new InvalidArgumentException('The selected nurse was not found.');
     }
-    auditLog($pdo, 'nurses', 'nurse.deleted', 'Removed nurse ' . $deletedNurseName . ' from the directory.', ['subject_role' => null]);
+    // Deleting a nurse also deletes their profile photo, as deleting a student does.
+    deleteStoredProfileImage($photoPath);
+    auditLog($pdo, 'nurses', 'nurse.deleted', 'Removed nurse ' . $deletedNurseName . ' from the directory.', nurseAuditSubject($nurseId, $deletedNurseName));
 }
 
 function medicineArchiveInstalled(PDO $pdo): bool
@@ -1544,30 +1720,75 @@ function guardianRelationshipMarks(?string $relationship): string
         . ($normalized === 'Guardian' ? '☑' : '☐') . ' Guardian';
 }
 
+// Sender name shown on the automatic reply a student gets when a conversation starts or reopens.
+const CHAT_AUTO_REPLY_SENDER = 'FCAT HealthWard (automatic reply)';
+const CHAT_AUTO_REPLY_HOURS = 48;
+
+/**
+ * SenderRole 'admin' is the clinic side of a conversation: an admin (AdminID), a nurse (NurseID),
+ * or the automatic reply (IsAutoReply = 1). Staff viewers see every clinic-side message as their own side.
+ */
 function formatChatMessage(array $row, string $viewerRole): array
 {
+    $isAutoReply = !empty($row['IsAutoReply']);
     $senderName = $row['SenderRole'] === 'admin'
-        ? ($row['AdminName'] ?? 'Admin')
+        ? ($isAutoReply ? CHAT_AUTO_REPLY_SENDER : ($row['AdminName'] ?? ''))
         : trim(($row['StudentFirstName'] ?? '') . ' ' . ($row['StudentLastName'] ?? ''));
 
     return [
-        'message_id'  => (int) $row['MessageID'],
-        'student_id'  => (int) $row['StudentID'],
-        'sender_role' => $row['SenderRole'],
-        'sender_name' => $senderName ?: ($row['SenderRole'] === 'admin' ? 'Admin' : 'Student'),
-        'content'     => $row['Content'],
-        'created_at'  => $row['CreatedAt'],
-        'is_mine'     => $row['SenderRole'] === $viewerRole,
+        'message_id'    => (int) $row['MessageID'],
+        'student_id'    => (int) $row['StudentID'],
+        'sender_role'   => $row['SenderRole'],
+        'sender_name'   => $senderName ?: ($row['SenderRole'] === 'admin' ? 'Clinic staff' : 'Student'),
+        'content'       => $row['Content'],
+        'created_at'    => $row['CreatedAt'],
+        'is_mine'       => $viewerRole === 'student' ? $row['SenderRole'] === 'student' : $row['SenderRole'] !== 'student',
+        'is_auto_reply' => $isAutoReply,
     ];
+}
+
+/** SELECT ... FROM for chat messages with the student's and the clinic sender's names. */
+function chatMessageSelectSql(PDO $pdo): string
+{
+    $byNurse = databaseColumnExists($pdo, 'Messages', 'NurseID');
+    return "SELECT m.*, s.FirstName AS StudentFirstName, s.LastName AS StudentLastName, "
+        . ($byNurse ? 'COALESCE(a.FullName, n.FullName)' : 'a.FullName') . " AS AdminName
+         FROM Messages m
+         JOIN Students s ON s.StudentID = m.StudentID
+         LEFT JOIN Admins a ON a.AdminID = m.AdminID
+         " . ($byNurse ? 'LEFT JOIN Nurses n ON n.NurseID = m.NurseID' : '');
+}
+
+// Adds Messages.IsAutoReply if add_chat_auto_reply.sql was never run.
+function ensureChatAutoReplyColumn(PDO $pdo): bool
+{
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = (bool) $pdo->query("SHOW COLUMNS FROM Messages LIKE 'IsAutoReply'")->fetch();
+            if (!$ready) {
+                $pdo->exec("ALTER TABLE Messages ADD COLUMN IsAutoReply TINYINT(1) NOT NULL DEFAULT 0 AFTER Content");
+                $ready = true;
+            }
+        } catch (PDOException $error) {
+            error_log('Could not add Messages.IsAutoReply: ' . $error->getMessage());
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
+function chatAutoReplyText(string $studentFirstName): string
+{
+    $name = trim($studentFirstName);
+    return 'Hi' . ($name !== '' ? ' ' . $name : '') . '! We received your message and expect to reply within '
+        . CHAT_AUTO_REPLY_HOURS . ' hours.';
 }
 
 function fetchChatMessages(PDO $pdo, int $studentId): array
 {
     $stmt = $pdo->prepare(
-        "SELECT m.*, s.FirstName AS StudentFirstName, s.LastName AS StudentLastName, a.FullName AS AdminName
-         FROM Messages m
-         JOIN Students s ON s.StudentID = m.StudentID
-         LEFT JOIN Admins a ON a.AdminID = m.AdminID
+        chatMessageSelectSql($pdo) . "
          WHERE m.StudentID = ?
          ORDER BY m.CreatedAt ASC, m.MessageID ASC"
     );
@@ -1589,24 +1810,79 @@ function markChatMessagesRead(PDO $pdo, int $studentId, string $readerRole): voi
     $stmt->execute([$studentId]);
 }
 
-function sendChatMessage(PDO $pdo, int $studentId, string $senderRole, ?int $adminId, string $content): array
+/**
+ * Saves a chat message. $senderRole is 'student' or 'admin' (the clinic side); a nurse sends as the
+ * clinic side with $nurseId set. When a student opens a brand-new conversation, or writes again after
+ * it was resolved, one automatic reply is saved right after their message and returned in $autoReply.
+ */
+function sendChatMessage(PDO $pdo, int $studentId, string $senderRole, ?int $adminId, string $content, ?int $nurseId = null, ?array &$autoReply = null): array
 {
-    ensureChatConversation($pdo, $studentId);
+    $autoReply = null;
+    $hasConversations = databaseTableExists($pdo, 'ChatConversations');
+    $recordNurse = $nurseId !== null && databaseColumnExists($pdo, 'Messages', 'NurseID');
+    $autoReplyReady = $senderRole === 'student' && ensureChatAutoReplyColumn($pdo);
 
-    $stmt = $pdo->prepare(
-        "INSERT INTO Messages (StudentID, SenderRole, AdminID, Content) VALUES (?, ?, ?, ?)"
-    );
-    $stmt->execute([$studentId, $senderRole, $adminId, $content]);
-    $messageId = (int) $pdo->lastInsertId();
+    $ownsTransaction = !$pdo->inTransaction();
+    if ($ownsTransaction) {
+        $pdo->beginTransaction();
+    }
+    try {
+        ensureChatConversation($pdo, $studentId);
 
-    if (databaseTableExists($pdo, 'ChatConversations')) {
-        $conversationUpdate = $senderRole === 'student'
-            ? "UPDATE ChatConversations
-               SET Status = 'open', LastMessageAt = NOW(), ResolvedAt = NULL, ResolvedByAdminID = NULL
-               WHERE StudentID = ?"
-            : "UPDATE ChatConversations SET LastMessageAt = NOW() WHERE StudentID = ?";
-        $stmt = $pdo->prepare($conversationUpdate);
-        $stmt->execute([$studentId]);
+        $needsAutoReply = false;
+        if ($autoReplyReady) {
+            // Lock the conversation so two quick messages can't both trigger the automatic reply.
+            $wasResolved = false;
+            if ($hasConversations) {
+                $status = $pdo->prepare("SELECT Status FROM ChatConversations WHERE StudentID = ? FOR UPDATE");
+                $status->execute([$studentId]);
+                $wasResolved = $status->fetchColumn() === 'resolved';
+            }
+            $prior = $pdo->prepare("SELECT COUNT(*) FROM Messages WHERE StudentID = ?");
+            $prior->execute([$studentId]);
+            $needsAutoReply = $wasResolved || (int) $prior->fetchColumn() === 0;
+        }
+
+        $stmt = $pdo->prepare(
+            $recordNurse
+                ? "INSERT INTO Messages (StudentID, SenderRole, AdminID, NurseID, Content) VALUES (?, ?, ?, ?, ?)"
+                : "INSERT INTO Messages (StudentID, SenderRole, AdminID, Content) VALUES (?, ?, ?, ?)"
+        );
+        $stmt->execute($recordNurse
+            ? [$studentId, $senderRole, $adminId, $nurseId, $content]
+            : [$studentId, $senderRole, $adminId, $content]);
+        $messageId = (int) $pdo->lastInsertId();
+
+        if ($hasConversations) {
+            $conversationUpdate = $senderRole === 'student'
+                ? "UPDATE ChatConversations
+                   SET Status = 'open', LastMessageAt = NOW(), ResolvedAt = NULL, ResolvedByAdminID = NULL
+                   WHERE StudentID = ?"
+                : "UPDATE ChatConversations SET LastMessageAt = NOW() WHERE StudentID = ?";
+            $stmt = $pdo->prepare($conversationUpdate);
+            $stmt->execute([$studentId]);
+        }
+
+        $autoReplyId = null;
+        if ($needsAutoReply) {
+            $firstName = $pdo->prepare("SELECT FirstName FROM Students WHERE StudentID = ?");
+            $firstName->execute([$studentId]);
+            // The student is looking at the chat when it arrives, so it starts out read.
+            $stmt = $pdo->prepare(
+                "INSERT INTO Messages (StudentID, SenderRole, AdminID, Content, IsAutoReply, IsRead) VALUES (?, 'admin', NULL, ?, 1, 1)"
+            );
+            $stmt->execute([$studentId, chatAutoReplyText((string) $firstName->fetchColumn())]);
+            $autoReplyId = (int) $pdo->lastInsertId();
+        }
+
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+    } catch (Throwable $error) {
+        if ($ownsTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $error;
     }
 
     if ($senderRole === 'student') {
@@ -1626,34 +1902,32 @@ function sendChatMessage(PDO $pdo, int $studentId, string $senderRole, ?int $adm
             $studentId,
             'chat',
             'New clinic message',
-            'The clinic admin sent you a message.',
+            $nurseId !== null ? 'A clinic nurse sent you a message.' : 'The clinic admin sent you a message.',
             getBasePath() . '/students/messages.php'
         );
     }
 
-    $stmt = $pdo->prepare(
-        "SELECT m.*, s.FirstName AS StudentFirstName, s.LastName AS StudentLastName, a.FullName AS AdminName
-         FROM Messages m
-         JOIN Students s ON s.StudentID = m.StudentID
-         LEFT JOIN Admins a ON a.AdminID = m.AdminID
-         WHERE m.MessageID = ? AND m.StudentID = ?"
-    );
-    $stmt->execute([$messageId, $studentId]);
-    $message = $stmt->fetch(PDO::FETCH_ASSOC);
-
+    $load = $pdo->prepare(chatMessageSelectSql($pdo) . " WHERE m.MessageID = ? AND m.StudentID = ?");
+    $load->execute([$messageId, $studentId]);
+    $message = $load->fetch(PDO::FETCH_ASSOC);
     if (!$message) {
         throw new RuntimeException('Unable to load the newly created chat message.');
+    }
+    if ($autoReplyId !== null) {
+        $load->execute([$autoReplyId, $studentId]);
+        $autoReply = $load->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     return $message;
 }
-
 function fetchChatThreads(PDO $pdo): array
 {
     $hasConversations = databaseTableExists($pdo, 'ChatConversations');
     $statusSelect = $hasConversations ? "COALESCE(c.Status, 'open')" : "'open'";
     $statusJoin = $hasConversations ? "LEFT JOIN ChatConversations c ON c.StudentID = s.StudentID" : "";
     $statusGroup = $hasConversations ? ", c.Status" : "";
+    // The inbox preview shows the last real message, not the automatic reply.
+    $skipAutoReply = databaseColumnExists($pdo, 'Messages', 'IsAutoReply') ? ' AND m2.IsAutoReply = 0' : '';
 
     $stmt = $pdo->query(
         "SELECT s.StudentID, s.FirstName, s.LastName,
@@ -1661,7 +1935,7 @@ function fetchChatThreads(PDO $pdo): array
                 MAX(m.CreatedAt) AS LastActivity,
                 {$statusSelect} AS ConversationStatus,
                 (SELECT Content FROM Messages m2
-                 WHERE m2.StudentID = s.StudentID
+                 WHERE m2.StudentID = s.StudentID{$skipAutoReply}
                  ORDER BY m2.CreatedAt DESC, m2.MessageID DESC LIMIT 1) AS LastMessage
          FROM Messages m
          JOIN Students s ON s.StudentID = m.StudentID
@@ -1696,7 +1970,7 @@ function currentChatUser(): array
 
 function chatReturnPath(): string
 {
-    return ($_SESSION['role'] ?? '') === 'admin'
+    return in_array($_SESSION['role'] ?? '', CLINIC_STAFF_ROLES, true)
         ? getBasePath() . '/app/admin/messages.php'
         : getBasePath() . '/students/messages.php';
 }
@@ -1718,10 +1992,11 @@ function cleanupChatPresence(PDO $pdo): void
     );
 }
 
+/** Students with a chat page open. Only students count toward CHAT_ACTIVE_LIMIT; staff are never queued. */
 function activeChatCount(PDO $pdo): int
 {
     cleanupChatPresence($pdo);
-    return (int) $pdo->query("SELECT COUNT(*) FROM ActiveChatSessions")->fetchColumn();
+    return (int) $pdo->query("SELECT COUNT(*) FROM ActiveChatSessions WHERE UserRole = 'student'")->fetchColumn();
 }
 
 function isCurrentChatSessionActive(PDO $pdo): bool
@@ -1789,6 +2064,12 @@ function admitCurrentChatSessionIfPossible(PDO $pdo): bool
         return true;
     }
 
+    // Admins and nurses always get in, so a full queue of students can never keep staff from answering.
+    if (in_array(currentChatUser()['role'], CLINIC_STAFF_ROLES, true)) {
+        touchChatSession($pdo);
+        return true;
+    }
+
     if (activeChatCount($pdo) < CHAT_ACTIVE_LIMIT) {
         $position = chatQueuePosition($pdo);
         if ($position === null || isCurrentChatSessionFirstInQueue($pdo)) {
@@ -1841,14 +2122,16 @@ function auditCategories(): array
 function auditAccountName(PDO $pdo, ?string $role, ?int $id): ?string
 {
     static $cache = [];
-    if ($id === null || !in_array($role, ['admin', 'student'], true)) {
+    if ($id === null || !in_array($role, ['admin', 'student', 'nurse'], true)) {
         return null;
     }
     $key = $role . ':' . $id;
     if (!array_key_exists($key, $cache)) {
-        $stmt = $role === 'admin'
-            ? $pdo->prepare("SELECT COALESCE(NULLIF(FullName, ''), Username) FROM Admins WHERE AdminID = ?")
-            : $pdo->prepare("SELECT CONCAT(FirstName, ' ', LastName) FROM Students WHERE StudentID = ?");
+        $stmt = match ($role) {
+            'admin' => $pdo->prepare("SELECT COALESCE(NULLIF(FullName, ''), Username) FROM Admins WHERE AdminID = ?"),
+            'nurse' => $pdo->prepare("SELECT FullName FROM Nurses WHERE NurseID = ?"),
+            default => $pdo->prepare("SELECT CONCAT(FirstName, ' ', LastName) FROM Students WHERE StudentID = ?"),
+        };
         $stmt->execute([$id]);
         $name = $stmt->fetchColumn();
         $cache[$key] = $name === false ? null : (string) $name;
@@ -1869,7 +2152,7 @@ function auditLog(PDO $pdo, string $category, string $action, string $descriptio
         }
 
         $actorRole = $context['actor_role'] ?? ($_SESSION['role'] ?? 'guest');
-        $actorRole = in_array($actorRole, ['admin', 'student', 'guest'], true) ? $actorRole : 'guest';
+        $actorRole = in_array($actorRole, ['admin', 'student', 'nurse', 'guest'], true) ? $actorRole : 'guest';
         $actorId = array_key_exists('actor_id', $context)
             ? $context['actor_id']
             : (isset($_SESSION['user_id']) && $actorRole !== 'guest' ? (int) $_SESSION['user_id'] : null);
@@ -1934,6 +2217,10 @@ function auditLogWhere(array $filters): array
         $where[] = "((ActorRole = 'admin' AND ActorID = ?) OR (SubjectRole = 'admin' AND SubjectID = ?))";
         array_push($params, (int) $filters['involving_admin_id'], (int) $filters['involving_admin_id']);
     }
+    if (isset($filters['involving_nurse_id'])) {
+        $where[] = "((ActorRole = 'nurse' AND ActorID = ?) OR (SubjectRole = 'nurse' AND SubjectID = ?))";
+        array_push($params, (int) $filters['involving_nurse_id'], (int) $filters['involving_nurse_id']);
+    }
     if (!empty($filters['category']) && array_key_exists($filters['category'], auditCategories())) {
         $where[] = 'Category = ?';
         $params[] = $filters['category'];
@@ -1976,6 +2263,30 @@ function auditStudentAccounts(PDO $pdo): array
     return $accounts;
 }
 
+/** Nurses the admin can pick in the Audit Log, including deleted nurses that still have history. */
+function auditNurseAccounts(PDO $pdo): array
+{
+    $accounts = [];
+    if (!databaseTableExists($pdo, 'Nurses')) {
+        return $accounts;
+    }
+    foreach ($pdo->query("SELECT NurseID, FullName FROM Nurses ORDER BY FullName") as $row) {
+        $accounts[(int) $row['NurseID']] = $row['FullName'];
+    }
+    if (databaseTableExists($pdo, 'AuditLogs')) {
+        $history = $pdo->query(
+            "SELECT SubjectID, MAX(SubjectName) AS Name FROM AuditLogs
+             WHERE SubjectRole = 'nurse' AND SubjectID IS NOT NULL GROUP BY SubjectID"
+        );
+        foreach ($history as $row) {
+            if (!isset($accounts[(int) $row['SubjectID']])) {
+                $accounts[(int) $row['SubjectID']] = ($row['Name'] ?: 'Nurse') . ' (deleted)';
+            }
+        }
+    }
+    return $accounts;
+}
+
 function countAuditLogs(PDO $pdo, array $filters = []): int
 {
     if (!databaseTableExists($pdo, 'AuditLogs')) {
@@ -2009,9 +2320,9 @@ function auditLogRequestFilters(): array
         return $date && $date->format('Y-m-d') === $value ? $value : '';
     };
     $category = (string) ($_GET['category'] ?? '');
-    // Admin-only account selector: '' (all), 'mine', or 'student:<id>'. Ignored on the student page.
+    // Admin-only account selector: '' (all), 'mine', 'student:<id>' or 'nurse:<id>'. Ignored on the student and nurse pages.
     $account = (string) ($_GET['account'] ?? '');
-    if ($account !== 'mine' && !preg_match('/^student:\d{1,10}$/', $account)) {
+    if ($account !== 'mine' && !preg_match('/^(student|nurse):\d{1,10}$/', $account)) {
         $account = '';
     }
 

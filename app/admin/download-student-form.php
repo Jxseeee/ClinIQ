@@ -2,7 +2,7 @@
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
 require_once __DIR__ . '/../includes/student-form-pdf.php';
-requireAdmin();
+requireClinicStaff();
 
 $studentId = $_GET['id'] ?? null;
 $form = (string) ($_GET['form'] ?? '');

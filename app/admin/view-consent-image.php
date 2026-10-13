@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $studentId = $_GET['id'] ?? null;
 if ($studentId === null || !ctype_digit((string) $studentId)) {

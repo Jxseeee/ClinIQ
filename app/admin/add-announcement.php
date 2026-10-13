@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $errors = [];
 $adminPageTitle = 'New Announcement';
@@ -21,8 +21,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (empty($errors)) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO Announcements (Title, Content, AdminID) VALUES (?, ?, ?)");
-            $stmt->execute([$title, $content, $_SESSION['user_id']]);
+            // An admin is recorded in AdminID; a nurse in NurseID (AdminID only references admins).
+            if (isNurse()) {
+                if (!databaseColumnExists($pdo, 'Announcements', 'NurseID')) {
+                    throw new PDOException('Announcements.NurseID is missing; run add_nurse_accounts.sql.');
+                }
+                $stmt = $pdo->prepare("INSERT INTO Announcements (Title, Content, AdminID, NurseID) VALUES (?, ?, NULL, ?)");
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO Announcements (Title, Content, AdminID) VALUES (?, ?, ?)");
+            }
+            $stmt->execute([$title, $content, (int) $_SESSION['user_id']]);
             auditLog($pdo, 'announcements', 'announcement.created', 'Posted announcement "' . mb_strimwidth($title, 0, 120, '...') . '".', ['subject_role' => null]);
             header("Location: announcements.php?success=created");
             exit;

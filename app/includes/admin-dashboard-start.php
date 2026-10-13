@@ -4,15 +4,22 @@ require_once __DIR__ . '/helpers.php';
 $basePath = getBasePath();
 $adminUser = currentUser();
 $adminId = (int) ($adminUser['id'] ?? 0);
+// Nurses share this layout; their notifications are the clinic staff feed with their own read state.
+$isNurseUser = ($adminUser['role'] ?? '') === 'nurse';
 $adminAccount = isset($settingsAdmin) && is_array($settingsAdmin) ? $settingsAdmin : null;
 if (!$adminAccount && $adminId > 0) {
-    $adminAccountStatement = $pdo->prepare('SELECT Username, FullName FROM Admins WHERE AdminID = ?');
-    $adminAccountStatement->execute([$adminId]);
-    $adminAccount = $adminAccountStatement->fetch(PDO::FETCH_ASSOC) ?: null;
+    if ($isNurseUser) {
+        $adminAccount = currentNurseAccount();
+    } else {
+        $adminAccountStatement = $pdo->prepare('SELECT Username, FullName FROM Admins WHERE AdminID = ?');
+        $adminAccountStatement->execute([$adminId]);
+        $adminAccount = $adminAccountStatement->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
 }
-$adminName = trim((string) ($adminAccount['FullName'] ?? '')) ?: 'Admin';
+$adminName = trim((string) ($adminAccount['FullName'] ?? '')) ?: ($isNurseUser ? 'Nurse' : 'Admin');
+$adminRoleLabel = $isNurseUser ? (trim((string) ($adminAccount['Position'] ?? '')) ?: 'Nurse') : 'Admin';
 $adminInitial = strtoupper(substr($adminName, 0, 1));
-$adminProfileImagePath = fetchProfileImagePath($pdo, 'admin', $adminId);
+$adminProfileImagePath = fetchProfileImagePath($pdo, $isNurseUser ? 'nurse' : 'admin', $adminId);
 $adminProfileImageUrl = profileImageUrl($adminProfileImagePath, $basePath);
 $currentPage = basename(str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? ''));
 $adminActivePage = match ($currentPage) {
@@ -31,8 +38,9 @@ $adminContentClass = $adminContentClass ?? '';
 
 // Allow the including page to pre-compute $adminUnread to avoid a second query.
 $adminUnread = $adminUnread ?? countUnreadChatForAdmin($pdo);
-$adminNotificationCount = countUnreadNotifications($pdo, 'admin', $adminId);
-$adminNotifications = fetchNotifications($pdo, 'admin', $adminId);
+$notificationRole = $isNurseUser ? 'nurse' : 'admin';
+$adminNotificationCount = countUnreadNotifications($pdo, $notificationRole, $adminId);
+$adminNotifications = fetchNotifications($pdo, $notificationRole, $adminId);
 
 $adminNavItems = [
     'index.php'         => ['Dashboard',     'dashboard', $basePath . '/public/index.php'],
@@ -44,6 +52,7 @@ $adminNavItems = [
     'messages.php'      => ['Messages',      'message',   $basePath . '/app/admin/messages.php'],
     'audit-log.php'     => ['Audit Log',     'audit',     $basePath . '/app/admin/audit-log.php'],
 ];
+// Nurses see the same menu; each page limits what they can change (their Audit Log shows only their own activity).
 $adminPageIcon = $adminActivePage === 'settings.php'
     ? 'settings'
     : ($adminNavItems[$adminActivePage][1] ?? 'dashboard');
@@ -94,7 +103,7 @@ $adminPageIcon = $adminActivePage === 'settings.php'
             <?php endif; ?>
             <div>
                 <strong><?= htmlspecialchars($adminName) ?></strong>
-                <small>Admin</small>
+                <small><?= htmlspecialchars($adminRoleLabel) ?></small>
             </div>
         </div>
         <a href="<?= $basePath ?>/app/admin/change-password.php" class="<?= $currentPage === 'change-password.php' ? 'active' : '' ?>">

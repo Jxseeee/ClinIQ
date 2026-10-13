@@ -11,6 +11,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Nurses answer chats like admins, once they have replaced the default password.
+if (nurseAccessBlocked()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Change your default password before using chat.']);
+    exit;
+}
+
 // Students must change their default password and complete the clinic form before using chat.
 if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
     http_response_code(403);
@@ -21,6 +28,7 @@ if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentC
 $user = currentUser();
 $role = $user['role'];
 $userId = (int) $user['id'];
+$isClinicStaff = in_array($role, CLINIC_STAFF_ROLES, true);
 
 function resolveStudentId(string $role, int $userId): ?int
 {
@@ -45,7 +53,7 @@ function studentExists(PDO $pdo, int $studentId): bool
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? 'messages';
 
-    if ($action === 'threads' && $role === 'admin') {
+    if ($action === 'threads' && $isClinicStaff) {
         echo json_encode(['threads' => fetchChatThreads($pdo)]);
         exit;
     }
@@ -121,15 +129,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // Admins and nurses both write from the clinic side ('admin'); the nurse is recorded in NurseID.
+    $senderRole = $isClinicStaff ? 'admin' : 'student';
     $adminId = $role === 'admin' ? $userId : null;
-    $row = sendChatMessage($pdo, $studentId, $role, $adminId, $content);
+    $nurseId = $role === 'nurse' ? $userId : null;
+    $autoReplyRow = null;
+    $row = sendChatMessage($pdo, $studentId, $senderRole, $adminId, $content, $nurseId, $autoReplyRow);
     $message = formatChatMessage($row, $role);
+    $autoReply = $autoReplyRow !== null ? formatChatMessage($autoReplyRow, $role) : null;
     $conversation = fetchChatConversation($pdo, $studentId);
 
     broadcastChatMessage($studentId, $message);
+    if ($autoReply !== null) {
+        broadcastChatMessage($studentId, $autoReply);
+    }
 
     echo json_encode([
         'message' => $message,
+        'auto_reply' => $autoReply,
         'conversation_status' => $conversation['Status'] ?? 'open',
     ]);
     exit;

@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $id = $_GET['id'] ?? null;
 if (!$id) { header("Location: students.php"); exit; }
@@ -47,8 +47,10 @@ $clinicVisits = fetchClinicVisits($pdo, (int) $student['StudentID']);
                 </p>
             </div>
             <div>
-                <a href="edit-student.php?id=<?= (int) $student['StudentID'] ?>" class="btn btn-success paper-download-btn">Edit Student</a>
-                <a href="audit-log.php?account=student:<?= (int) $student['StudentID'] ?>" class="btn btn-secondary paper-download-btn">View audit log</a>
+                <?php if (isAdmin()): ?>
+                    <a href="edit-student.php?id=<?= (int) $student['StudentID'] ?>" class="btn btn-success paper-download-btn">Edit Student</a>
+                    <a href="audit-log.php?account=student:<?= (int) $student['StudentID'] ?>" class="btn btn-secondary paper-download-btn">View audit log</a>
+                <?php endif; ?>
                 <a href="students.php" class="btn btn-secondary paper-download-btn">Back to List</a>
             </div>
         </div>

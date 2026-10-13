@@ -7,6 +7,12 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// A nurse still on the default password must replace it before taking a chat slot.
+if (nurseAccessBlocked()) {
+    header('Location: ../app/admin/change-password.php?force=1');
+    exit;
+}
+
 if ($_SESSION['role'] === 'student' && studentMustChangePassword()) {
     header('Location: ../students/change-password.php?force=1');
     exit;
@@ -45,11 +51,11 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
              data-status-url="<?= htmlspecialchars($apiUrl) ?>">
             <h1>Chat Is Full</h1>
             <p class="login-subtitle">
-                The chat is limited to <?= CHAT_ACTIVE_LIMIT ?> active users while testing.
+                Up to <?= CHAT_ACTIVE_LIMIT ?> students can chat at once. You'll be let in automatically when a spot opens.
             </p>
 
             <div class="queue-status">
-                <p>Active chat users: <strong id="queue-active-count"><?= (int) $status['active_count'] ?></strong> / <?= CHAT_ACTIVE_LIMIT ?></p>
+                <p>Students chatting: <strong id="queue-active-count"><?= (int) $status['active_count'] ?></strong> / <?= CHAT_ACTIVE_LIMIT ?></p>
                 <p>Your queue position: <strong id="queue-position"><?= (int) $status['position'] ?></strong></p>
             </div>
 
@@ -57,7 +63,7 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
                 This page refreshes every 5 seconds. You will be moved into chat automatically when a slot opens.
             </p>
 
-            <a href="<?= $_SESSION['role'] === 'admin' ? '../public/index.php' : '../students/index.php' ?>"
+            <a href="<?= in_array($_SESSION['role'], CLINIC_STAFF_ROLES, true) ? '../public/index.php' : '../students/index.php' ?>"
                class="btn btn-secondary"
                style="width:100%;padding:12px;text-align:center;">Leave Queue</a>
         </div>

@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $announcements = fetchAnnouncements($pdo);
 $adminPageTitle = 'Announcements';
@@ -57,6 +57,7 @@ $adminPageTitle = 'Announcements';
                                     <?= date('M d, Y', strtotime($a['CreatedAt'])) ?>
                                     <small><?= date('g:i A', strtotime($a['CreatedAt'])) ?></small>
                                 </time>
+                                <?php if (isAdmin()): ?>
                                 <div class="announcement-row-actions">
                                     <form method="POST" action="delete-announcement.php" class="delete-form announcement-delete-form">
                                         <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
@@ -64,6 +65,7 @@ $adminPageTitle = 'Announcements';
                                         <button type="submit" class="btn announcement-action-button announcement-action-delete">Delete</button>
                                     </form>
                                 </div>
+                                <?php endif; ?>
                             </div>
                         </article>
                     <?php endforeach; ?>

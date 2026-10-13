@@ -210,6 +210,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     setConversationStatus(data.conversation_status);
                     appendMessage(data.message);
+                    // A new or reopened conversation gets one automatic reply right after the student's message.
+                    if (data.auto_reply) appendMessage(data.auto_reply);
                 })
                 .catch(function () {
                     var pendingBubble = list.querySelector('[data-message-id="' + pendingId + '"]');

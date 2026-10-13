@@ -18,6 +18,13 @@ if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentC
     exit;
 }
 
+// Nurses answer chats like admins, once they have replaced the default password.
+if (nurseAccessBlocked()) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Change your default password before using chat.']);
+    exit;
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? 'status';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

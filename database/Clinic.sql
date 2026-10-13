@@ -6,10 +6,10 @@ DROP TABLE IF EXISTS AuditLogs;
 DROP TABLE IF EXISTS ChatQueue;
 DROP TABLE IF EXISTS ActiveChatSessions;
 DROP TABLE IF EXISTS AdminNotificationReads;
+DROP TABLE IF EXISTS NurseNotificationReads;
 DROP TABLE IF EXISTS Notifications;
 -- ClinicOccupancy is no longer used (counts are live); dropped so old installs are cleaned up.
 DROP TABLE IF EXISTS ClinicOccupancy;
-DROP TABLE IF EXISTS Nurses;
 DROP TABLE IF EXISTS Medicines;
 DROP TABLE IF EXISTS ClinicCheckIns;
 DROP TABLE IF EXISTS ClinicVisits;
@@ -18,6 +18,8 @@ DROP TABLE IF EXISTS Messages;
 DROP TABLE IF EXISTS MedicalHistory;
 DROP TABLE IF EXISTS Guardians;
 DROP TABLE IF EXISTS Announcements;
+-- Nurses is referenced by ClinicVisits, Messages, Announcements and NurseNotificationReads, so it goes after them.
+DROP TABLE IF EXISTS Nurses;
 DROP TABLE IF EXISTS Admins;
 DROP TABLE IF EXISTS Students;
 
@@ -104,6 +106,7 @@ CREATE TABLE Announcements (
     Title VARCHAR(200) NOT NULL,
     Content TEXT NOT NULL,
     AdminID INT,
+    NurseID INT NULL,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL
 );
@@ -111,9 +114,12 @@ CREATE TABLE Announcements (
 CREATE TABLE Messages (
     MessageID INT AUTO_INCREMENT PRIMARY KEY,
     StudentID INT NOT NULL,
+    -- 'admin' is the clinic side: an admin (AdminID), a nurse (NurseID), or the automatic reply (IsAutoReply).
     SenderRole ENUM('student', 'admin') NOT NULL,
     AdminID INT NULL,
+    NurseID INT NULL,
     Content TEXT NOT NULL,
+    IsAutoReply TINYINT(1) NOT NULL DEFAULT 0,
     IsRead TINYINT(1) NOT NULL DEFAULT 0,
     CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (StudentID) REFERENCES Students(StudentID) ON DELETE CASCADE,
@@ -137,6 +143,7 @@ CREATE TABLE ClinicVisits (
     StudentID INT NULL,
     StaffID INT NULL,
     AdminID INT NULL,
+    NurseID INT NULL,
     Complaint TEXT NOT NULL,
     Vitals VARCHAR(255),
     Assessment TEXT,
@@ -194,6 +201,10 @@ CREATE TABLE Nurses (
     FullName VARCHAR(120) NOT NULL,
     Position VARCHAR(100) NOT NULL DEFAULT 'Clinic Nurse',
     LicenseNumber VARCHAR(80),
+    Username VARCHAR(50) NULL UNIQUE,
+    Password VARCHAR(255) NULL,
+    MustChangePassword TINYINT(1) NOT NULL DEFAULT 1,
+    ProfileImagePath VARCHAR(255) NULL,
     IsOnDuty TINYINT(1) NOT NULL DEFAULT 0,
     DutyCampus VARCHAR(50) NULL,
     CreatedByAdminID INT NULL,
@@ -202,6 +213,14 @@ CREATE TABLE Nurses (
     FOREIGN KEY (CreatedByAdminID) REFERENCES Admins(AdminID) ON DELETE SET NULL,
     INDEX idx_nurses_duty_name (IsOnDuty, FullName)
 );
+
+-- Visits, chat replies and announcements by a nurse (those tables are created before Nurses, so the keys are added here).
+ALTER TABLE ClinicVisits
+    ADD CONSTRAINT fk_clinic_visits_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL;
+ALTER TABLE Messages
+    ADD CONSTRAINT fk_messages_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL;
+ALTER TABLE Announcements
+    ADD CONSTRAINT fk_announcements_nurse FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE SET NULL;
 
 CREATE TABLE ClinicCheckIns (
     CheckInID INT AUTO_INCREMENT PRIMARY KEY,
@@ -248,9 +267,19 @@ CREATE TABLE AdminNotificationReads (
     FOREIGN KEY (AdminID) REFERENCES Admins(AdminID) ON DELETE CASCADE
 );
 
+-- Per-nurse read state for the same clinic-wide staff notifications.
+CREATE TABLE NurseNotificationReads (
+    NotificationID INT NOT NULL,
+    NurseID INT NOT NULL,
+    ReadAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (NotificationID, NurseID),
+    FOREIGN KEY (NotificationID) REFERENCES Notifications(NotificationID) ON DELETE CASCADE,
+    FOREIGN KEY (NurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE
+);
+
 CREATE TABLE ActiveChatSessions (
     SessionID VARCHAR(128) PRIMARY KEY,
-    UserRole ENUM('student', 'admin') NOT NULL,
+    UserRole ENUM('student', 'admin', 'nurse') NOT NULL,
     UserID INT NOT NULL,
     LastSeenAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -258,7 +287,7 @@ CREATE TABLE ActiveChatSessions (
 CREATE TABLE ChatQueue (
     QueueID INT AUTO_INCREMENT PRIMARY KEY,
     SessionID VARCHAR(128) NOT NULL UNIQUE,
-    UserRole ENUM('student', 'admin') NOT NULL,
+    UserRole ENUM('student', 'admin', 'nurse') NOT NULL,
     UserID INT NOT NULL,
     CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     LastSeenAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -266,10 +295,10 @@ CREATE TABLE ChatQueue (
 
 CREATE TABLE AuditLogs (
     AuditLogID INT AUTO_INCREMENT PRIMARY KEY,
-    ActorRole ENUM('admin', 'student', 'guest') NOT NULL,
+    ActorRole ENUM('admin', 'student', 'nurse', 'guest') NOT NULL,
     ActorID INT NULL,
     ActorName VARCHAR(150) NOT NULL,
-    SubjectRole ENUM('admin', 'student') NULL,
+    SubjectRole ENUM('admin', 'student', 'nurse') NULL,
     SubjectID INT NULL,
     SubjectName VARCHAR(150) NULL,
     Category VARCHAR(30) NOT NULL,

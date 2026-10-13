@@ -8,6 +8,8 @@ $assetsPath = $basePath . '/public/assets';
 if (isLoggedIn()) {
     if ($_SESSION['role'] === 'admin') {
         header('Location: ' . $basePath . '/public/index.php');
+    } elseif ($_SESSION['role'] === 'nurse') {
+        header('Location: ' . $basePath . (nurseMustChangePassword() ? '/app/admin/change-password.php?force=1' : '/public/index.php'));
     } elseif (studentMustChangePassword()) {
         header('Location: ' . $basePath . '/students/change-password.php?force=1');
     } else {
@@ -29,6 +31,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$username]);
         $admin = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
+        // Nurses sign in with the username an admin gave them. Usernames always start with a letter,
+        // so they can never collide with a Student ID.
+        $nurse = null;
+        if (!$admin && ensureNurseAccountSchema()) {
+            $stmt = $pdo->prepare("SELECT * FROM Nurses WHERE Username = ? AND Password IS NOT NULL");
+            $stmt->execute([$username]);
+            $nurse = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+
         // Student IDs are digits only; without this check MySQL would match "10001abc" to student 10001.
         $student = null;
         if (ctype_digit($username) && strlen($username) <= 10) {
@@ -37,8 +48,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $student = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         }
 
-        $targetRole = $admin ? 'admin' : ($student ? 'student' : null);
-        $targetId = $admin ? (int) $admin['AdminID'] : ($student ? (int) $student['StudentID'] : null);
+        $targetRole = $admin ? 'admin' : ($nurse ? 'nurse' : ($student ? 'student' : null));
+        $targetId = $admin ? (int) $admin['AdminID'] : ($nurse ? (int) $nurse['NurseID'] : ($student ? (int) $student['StudentID'] : null));
         $throttled = loginIsThrottled($pdo, $targetRole, $targetId);
 
         if ($throttled) {
@@ -50,6 +61,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_name'] = 'Admin';
             auditLog($pdo, 'security', 'auth.login', 'Signed in as administrator.');
             header('Location: ' . $basePath . '/public/index.php');
+            exit;
+        } elseif ($nurse && password_verify($password, $nurse['Password'])) {
+            session_regenerate_id(true);
+            $_SESSION['user_id']   = (int) $nurse['NurseID'];
+            $_SESSION['role']      = 'nurse';
+            $_SESSION['user_name'] = $nurse['FullName'];
+            auditLog($pdo, 'security', 'auth.login', 'Signed in to the clinic portal as a nurse.');
+
+            header('Location: ' . $basePath . ((int) $nurse['MustChangePassword'] === 1
+                ? '/app/admin/change-password.php?force=1'
+                : '/public/index.php'));
             exit;
         } elseif ($student && password_verify($password, $student['Password'])) {
             session_regenerate_id(true);
@@ -134,7 +156,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
 
-                <p class="portal-intro">Use your Student ID or administrator username to continue.</p>
+                <p class="portal-intro">Use your Student ID or your staff username to continue.</p>
 
                 <?php if (isset($_GET['logout']) && !$error): ?>
                     <div class="alert alert-success">You have been logged out.</div>

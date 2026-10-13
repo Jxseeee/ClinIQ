@@ -46,13 +46,15 @@ function adminInboxChannel(): string
 
 function canAccessChatChannel(string $channel, string $role, int $userId): bool
 {
+    // Admins and nurses both answer student chats.
+    $isClinicStaff = in_array($role, ['admin', 'nurse'], true);
     if ($channel === adminInboxChannel()) {
-        return $role === 'admin';
+        return $isClinicStaff;
     }
 
     if (preg_match('/^private-chat-(\d+)$/', $channel, $m)) {
         $studentId = (int) $m[1];
-        return $role === 'admin' || ($role === 'student' && $userId === $studentId);
+        return $isClinicStaff || ($role === 'student' && $userId === $studentId);
     }
 
     return false;

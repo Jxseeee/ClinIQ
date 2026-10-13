@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
-requireAdmin();
+requireClinicStaff();
 
 $students = $pdo->query(
     "SELECT StudentID, FirstName, LastName, Email, Phone, CreatedAt FROM Students ORDER BY CreatedAt DESC"
@@ -27,7 +27,9 @@ $adminPageTitle = 'Students';
             <div class="dashboard-section-title">
                 <span><?= studentDashboardIcon('records') ?></span>
                 <h2>All Students</h2>
-                <a href="add-student.php" class="btn btn-success admin-panel-action">+ Add Student</a>
+                <?php if (isAdmin()): ?>
+                    <a href="add-student.php" class="btn btn-success admin-panel-action">+ Add Student</a>
+                <?php endif; ?>
             </div>
 
             <?php if (isset($_GET['success'])): ?>
@@ -83,12 +85,14 @@ $adminPageTitle = 'Students';
                             <td data-label="Phone"><?= htmlspecialchars($s['Phone'] ?? '—') ?></td>
                             <td data-label="Actions" class="actions student-row-actions">
                                 <a href="view-student.php?id=<?= $s['StudentID'] ?>" class="btn student-action-button student-action-view">View</a>
+                                <?php if (isAdmin()): ?>
                                 <a href="edit-student.php?id=<?= $s['StudentID'] ?>" class="btn student-action-button student-action-edit">Edit</a>
                                 <form method="POST" action="delete-student.php" class="delete-form student-delete-form">
                                     <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $s['StudentID'] ?>">
                                     <button type="submit" class="btn student-action-button student-action-delete">Delete</button>
                                 </form>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>

@@ -1,6 +1,6 @@
 # Student Management System
 
-A PHP CRUD application with role-based authentication. Admins manage students and post announcements (announcements can be created or deleted, not edited). Students view announcements, fill out clinic forms, manage their own profile, and chat with admins in real time via Pusher.
+A PHP CRUD application with role-based authentication. Admins manage students and post announcements (announcements can be created or deleted, not edited). Nurses, whose accounts admins create on the Nurses page, use the clinic side of the portal with fewer rights: they run Check In, read student records and reports, and switch themselves on or off duty. Students view announcements, fill out clinic forms, manage their own profile, and chat with admins in real time via Pusher.
 
 ## Requirements
 
@@ -96,6 +96,18 @@ If you already have the database and need nurse directory and duty management, r
 mysql -u root -p < database/migrations/add_nurses.sql
 ```
 
+If you already have the Nurses table and want nurses to sign in with their own accounts, run:
+
+```bash
+mysql -u root -p < database/migrations/add_nurse_accounts.sql
+```
+
+If you already have the Messages table and want the automatic chat reply, run:
+
+```bash
+mysql -u root -p < database/migrations/add_chat_auto_reply.sql
+```
+
 If you already have the database and need medicine inventory reports, run:
 
 ```bash
@@ -143,6 +155,8 @@ PUSHER_APP_KEY=your_key
 PUSHER_APP_SECRET=your_secret
 PUSHER_APP_CLUSTER=ap1
 ```
+
+Use a separate Pusher app for each copy of the site (for example one for your computer and one for the server). Chat channels are named after Student IDs, so two sites sharing one Pusher app would show each other's messages.
 
 Chat still works without Pusher (messages are saved to MySQL), but the other party must refresh the page to see new replies.
 
@@ -202,13 +216,28 @@ done
 
 New student accounts are created by admins only. Admin-created students use the default password `Password@123!` and are forced to change it on first login.
 
+Nurse accounts are also created by admins only (Nurses → **+ Add Nurse**, which asks for a username). A nurse signs in with that username and the same default password `Password@123!`, must change it at first sign-in, and does not fill out a clinic form. Admins can reset a nurse's password back to the default from the Edit nurse dialog. The nurse role is deliberately narrower than admin:
+
+| Area | Admin | Nurse |
+|------|-------|-------|
+| Dashboard, Check In | Full | Full |
+| Reports | Full, including inventory and visit-status changes | Read-only |
+| Students | Add, edit, delete, view, download forms | View and download forms only |
+| Nurses | Add, edit, delete, toggle anyone's duty | Toggle their own duty and campus only |
+| Messages | Full | Full: reply to, resolve and reopen student chats |
+| Announcements | Post and delete | Post only |
+| Audit Log | Everyone's activity | Only their own activity and changes to their account |
+| Settings | Profile photo, name, password | Profile photo, name, password (username, position and license number are set by an admin) |
+| Notifications | Clinic staff notifications | The same staff notifications, with their own read/unread state |
+
 ## Real-time Chat
 
 - **Students:** `students/messages.php` — one thread per student with the admin office
 - **Admins:** `app/admin/messages.php` — inbox of all student conversations with unread badges
 - Messages are stored in the `Messages` table and pushed instantly via Pusher private channels
-- Admins can mark conversations resolved; students see the resolved indicator, and a new student message automatically reopens the conversation
-- Active chat pages are limited to 5 users for testing; extra users wait on `public/chat-queue.php`
+- Admins and nurses can mark conversations resolved; students see the resolved indicator, and a new student message automatically reopens the conversation. Replies show the name of the admin or nurse who sent them
+- When a student starts a conversation, or writes again after it was resolved, they get one automatic reply: "Hi <first name>! We received your message and expect to reply within 48 hours." It is stored with `Messages.IsAutoReply = 1` (column added automatically if `add_chat_auto_reply.sql` hasn't been run), shows as "FCAT HealthWard (automatic reply)", and is left out of the inbox preview
+- Up to `CHAT_ACTIVE_LIMIT` students (set in `.env`, default 5) can have a chat page open at once; extra students wait on `public/chat-queue.php`. Admins and nurses are never queued and don't count toward the limit
 - API endpoints: `app/api/chat.php` (send/fetch), `app/api/pusher-auth.php` (channel authorization), and `app/api/chat-presence.php` (queue/heartbeat)
 
 ## Patient Records
@@ -236,10 +265,10 @@ New student accounts are created by admins only. Admin-created students use the 
 
 ## Audit Log
 
-- Admins (`app/admin/audit-log.php`) and students (`students/audit-log.php`) both have an **Audit Log** tab
+- Admins and nurses (`app/admin/audit-log.php`) and students (`students/audit-log.php`) all have an **Audit Log** tab; a nurse sees only what they did and changes made to their account
 - Every entry records the date and time, who performed it, which account it concerns, a description, and the IP address; names are stored with the entry so history survives account deletion, and entries cannot be edited or deleted from the app
 - Logged events: sign-ins, failed sign-in attempts (recorded against the targeted account), sign-outs, password changes and admin password resets, account detail and profile photo changes, notification preference changes, clinic form completion/updates with Data Privacy Act consent (with which sections changed), guardian ID uploads, clinic/consent PDF downloads, student account creation/updates/deletion, announcements, check-ins and check-outs, medicine inventory changes, nurse changes, and chat resolve/reopen
-- Admins see all activity and can switch the "Show" selector to "My account only" or a specific student's log (deleted students with history stay selectable); the student record page links to that student's log
+- Admins see all activity and can switch the "Show" selector to "My account only", a specific student's log, or a specific nurse's log (what the nurse did plus changes to their account). Deleted students and nurses with history stay selectable; the student record page links to that student's log
 - Students see only activity on their own account — the account always comes from the session, so URL parameters can't show another student's log. Actions by clinic staff appear as "FCAT HealthWard staff" without the admin's name or IP address, and failed sign-ins on the account are highlighted
 - Admins can download a student's Clinic Form (01) and Consent Form (02) as PDFs from the student record page
 
@@ -264,7 +293,8 @@ New student accounts are created by admins only. Admin-created students use the 
 - Check In and Check Out ask for confirmation in the app's standard confirmation popup; the check-in message names the patient and any medicine and quantity that will be deducted from stock, and the check-out message notes when an open visit will be marked Completed
 - Check-in and check-out are timestamped automatically; Time in / Time out appear in the student's visit history, the admin Check In visit records, the student record page, and Reports (open visits show "Still in clinic")
 - PHP and MySQL both use `APP_TIMEZONE` from `.env` (default `Asia/Manila`), so timestamps stay correct on servers running in UTC
-- `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls
+- `app/admin/nurses.php` provides nurse add, edit, delete, and animated on-duty/off-duty controls. A signed-in nurse sees the same page but only their own row can be toggled; the username and reset-password controls are admin-only
+- Nurse sign-in details live in `Nurses.Username`, `Nurses.Password` and `Nurses.MustChangePassword` (added automatically if `add_nurse_accounts.sql` hasn't been run, together with the `nurse` role in the audit log). Visits a nurse records keep `AdminID` empty and are attributed to the nurse in the audit log
 - The nurses-on-duty dashboard count is derived from active nurse toggles and cannot be edited manually
 - Turning a nurse on duty opens a popup to choose the campus (FCAT - Main, FCAT - Re Chico, FCAT - Pinagbarilan, FCAT - La Rosa); turning them off clears it. Adding a nurse as on duty also requires a campus. The campus is stored in `Nurses.DutyCampus` (added automatically if `add_nurse_duty_campus.sql` hasn't been run) and recorded in the audit log
 - The student dashboard has a "Nurses on duty by campus" panel showing, for every campus, whether a nurse is available and who is on duty there (admins manage this from the Nurses page)
@@ -338,6 +368,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │   └── migrations/
 │       ├── add_messages.sql
 │       ├── add_must_change_password.sql
+│       ├── add_chat_auto_reply.sql
 │       ├── add_chat_queue.sql
 │       ├── add_consent_image_path.sql
 │       ├── add_clinic_workflow.sql
@@ -346,6 +377,7 @@ New student accounts are created by admins only. Admin-created students use the 
 │       ├── add_admin_notification_reads.sql
 │       ├── add_clinic_checkins.sql
 │       ├── add_visit_medicine_quantity.sql
+│       ├── add_nurse_accounts.sql
 │       ├── add_nurses.sql
 │       ├── add_student_notification_preferences.sql
 │       ├── add_medicine_inventory.sql
