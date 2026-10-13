@@ -176,11 +176,11 @@ $adminPageTitle = 'Dashboard';
                 <?php endif; ?>
             </section>
 
-            <!-- Queue Status -->
+            <!-- Chat Queue Status -->
             <section class="student-side-card queue-card-dashboard">
                 <div class="dashboard-section-title">
                     <span><?= studentDashboardIcon('headset') ?></span>
-                    <h2>Queue Status</h2>
+                    <h2>Chat Queue Status</h2>
                 </div>
                 <div class="queue-card-count" title="Students currently waiting">
                     <strong><?= $queueWaiting ?></strong>

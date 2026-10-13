@@ -6477,39 +6477,32 @@ button.birth-date-calendar-day:hover {
     }
 }
 
-/* Very short screens: the waiting count moves up beside the title so the whole card fits. */
+/* Very short screens: keep the count centred but shrink it and tighten the spacing so the whole card fits. */
 @media (min-width: 1101px) and (max-height: 710px) {
     .admin-dashboard-page.dashboard-home-body .admin-dashboard-insights .queue-card-dashboard {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        grid-template-areas:
-            "title count"
-            "footer footer";
-        align-content: space-between;
-        align-items: center;
         padding: 14px 20px;
     }
 
     .admin-dashboard-page.dashboard-home-body .admin-dashboard-insights .queue-card-dashboard .dashboard-section-title {
-        grid-area: title;
-        margin-bottom: 10px;
+        margin-bottom: 6px;
     }
 
     .admin-dashboard-page.dashboard-home-body .queue-card-count {
-        grid-area: count;
-        padding: 0 0 10px;
+        min-height: 0;
+        gap: 4px;
+        padding: 2px 0 8px;
     }
 
     .admin-dashboard-page.dashboard-home-body .queue-card-count strong {
-        font-size: 2.2rem;
+        font-size: clamp(2.2rem, 6vh, 3rem);
     }
 
     .admin-dashboard-page.dashboard-home-body .queue-card-count span {
-        display: none;
+        font-size: 0.72rem;
     }
 
     .admin-dashboard-page.dashboard-home-body .queue-card-footer {
-        grid-area: footer;
+        padding-top: 8px;
     }
 }
 
