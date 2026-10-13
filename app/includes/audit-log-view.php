@@ -13,7 +13,7 @@ $auditRoleLabel = static fn(?string $role): string => match ($role) {
 };
 $auditSelectedStudentId = $auditSelectedStudentId ?? null;
 ?>
-<section class="reports-section audit-log-section">
+<section class="reports-section audit-log-section" data-live-scope>
     <div class="reports-section-heading">
         <div>
             <h2><?= $auditIsAdmin ? 'Activity history' : 'Your account activity' ?></h2>
@@ -23,18 +23,22 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
                     : 'Sign-ins, password and account changes, clinic form updates, and actions the clinic took on your account.' ?>
             </p>
         </div>
-        <span class="audit-total"><strong><?= number_format($auditTotal) ?></strong> <?= $auditTotal === 1 ? 'entry' : 'entries' ?></span>
+        <span class="audit-total" data-audit-total><strong><?= number_format($auditTotal) ?></strong> <?= $auditTotal === 1 ? 'entry' : 'entries' ?></span>
     </div>
 
-    <?php if ($auditIsAdmin && $auditSelectedStudentId !== null): ?>
-        <div class="audit-viewing-student">
-            <?= studentDashboardIcon('user') ?>
-            <span>Showing the audit log of <strong><?= htmlspecialchars($auditStudentAccounts[$auditSelectedStudentId] ?? 'Student') ?></strong> (#<?= $auditSelectedStudentId ?>)</span>
-            <a href="audit-log.php" class="btn btn-secondary">Show all activity</a>
-        </div>
-    <?php endif; ?>
+    <div data-audit-banner>
+        <?php if ($auditIsAdmin && $auditSelectedStudentId !== null): ?>
+            <div class="audit-viewing-student">
+                <?= studentDashboardIcon('user') ?>
+                <span>Showing the audit log of <strong><?= htmlspecialchars($auditStudentAccounts[$auditSelectedStudentId] ?? 'Student') ?></strong> (#<?= $auditSelectedStudentId ?>)</span>
+                <a href="audit-log.php" class="btn btn-secondary" data-live-link>Show all activity</a>
+            </div>
+        <?php endif; ?>
+    </div>
 
-    <form method="GET" class="reports-filter-form audit-filter-form">
+    <form method="GET" class="reports-filter-form audit-filter-form"
+          data-live-filter="[data-audit-total],[data-audit-banner],[data-audit-results]"
+          data-live-params="search,category,account,date_from,date_to,page">
         <label class="audit-filter-field audit-filter-search">
             <span>Search</span>
             <input type="search" name="search" value="<?= htmlspecialchars($auditFilters['search']) ?>" placeholder="<?= $auditIsAdmin ? 'Name, activity, or IP address' : 'Activity or IP address' ?>">
@@ -67,18 +71,19 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
         <?php endif; ?>
         <label class="audit-filter-field">
             <span>From</span>
-            <input type="date" name="date_from" value="<?= htmlspecialchars($auditFilters['date_from']) ?>" max="<?= date('Y-m-d') ?>">
+            <input type="date" name="date_from" value="<?= htmlspecialchars($auditFilters['date_from']) ?>" min="2000-01-01" max="<?= date('Y-m-d') ?>">
         </label>
         <label class="audit-filter-field">
             <span>To</span>
-            <input type="date" name="date_to" value="<?= htmlspecialchars($auditFilters['date_to']) ?>" max="<?= date('Y-m-d') ?>">
+            <input type="date" name="date_to" value="<?= htmlspecialchars($auditFilters['date_to']) ?>" min="2000-01-01" max="<?= date('Y-m-d') ?>">
         </label>
         <div class="audit-filter-actions">
-            <button type="submit" class="btn btn-success">Filter</button>
-            <a href="audit-log.php" class="btn btn-secondary">Reset</a>
+            <a href="audit-log.php" class="btn btn-secondary" data-live-link>Reset</a>
         </div>
     </form>
+    <div class="alert alert-danger" data-live-filter-error hidden></div>
 
+    <div data-audit-results>
     <div class="reports-table-wrap">
         <table class="reports-table audit-log-table">
             <thead>
@@ -116,7 +121,7 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
                                 <strong>You</strong>
                                 <small><?= htmlspecialchars($auditRoleLabel($entry['ActorRole'])) ?></small>
                             <?php elseif ($hideStaffDetails): ?>
-                                <strong>FCAT Clinic staff</strong>
+                                <strong>FCAT HealthWard staff</strong>
                                 <small>School clinic</small>
                             <?php else: ?>
                                 <strong><?= htmlspecialchars($entry['ActorName']) ?></strong>
@@ -146,16 +151,17 @@ $auditSelectedStudentId = $auditSelectedStudentId ?? null;
     <?php if ($auditPageCount > 1): ?>
         <nav class="audit-pagination" aria-label="Audit log pages">
             <?php if ($auditPage > 1): ?>
-                <a href="<?= htmlspecialchars($auditPageUrl($auditPage - 1)) ?>" class="btn btn-secondary"><?= studentDashboardIcon('chevron-left') ?> Newer</a>
+                <a href="<?= htmlspecialchars($auditPageUrl($auditPage - 1)) ?>" class="btn btn-secondary" data-live-link><?= studentDashboardIcon('chevron-left') ?> Newer</a>
             <?php else: ?>
                 <span class="btn btn-secondary is-disabled" aria-disabled="true"><?= studentDashboardIcon('chevron-left') ?> Newer</span>
             <?php endif; ?>
             <span class="audit-page-status">Page <?= $auditPage ?> of <?= $auditPageCount ?></span>
             <?php if ($auditPage < $auditPageCount): ?>
-                <a href="<?= htmlspecialchars($auditPageUrl($auditPage + 1)) ?>" class="btn btn-secondary">Older <?= studentDashboardIcon('chevron-right') ?></a>
+                <a href="<?= htmlspecialchars($auditPageUrl($auditPage + 1)) ?>" class="btn btn-secondary" data-live-link>Older <?= studentDashboardIcon('chevron-right') ?></a>
             <?php else: ?>
                 <span class="btn btn-secondary is-disabled" aria-disabled="true">Older <?= studentDashboardIcon('chevron-right') ?></span>
             <?php endif; ?>
         </nav>
     <?php endif; ?>
+    </div>
 </section>

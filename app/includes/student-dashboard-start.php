@@ -39,9 +39,9 @@ $studentPageIcon = match ($currentPage) {
 <aside class="student-sidebar">
     <div class="student-sidebar-brand">
         <a href="<?= htmlspecialchars($lockedNavHref($basePath . '/students/index.php')) ?>" class="student-sidebar-brand-link" aria-label="Go to dashboard">
-            <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT Clinic Logo">
+            <img src="<?= $basePath ?>/public/assets/images/fcat-clinic-logo.2.png" alt="FCAT HealthWard Logo">
             <span class="student-sidebar-brand-copy">
-                <strong>FCAT Clinic</strong>
+                <strong>FCAT HealthWard</strong>
                 <small>Campus health</small>
             </span>
         </a>

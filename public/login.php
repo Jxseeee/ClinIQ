@@ -98,17 +98,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="login-page antialiased selection:bg-green-200 selection:text-green-950">
     <main class="portal-login-shell">
         <section class="portal-brand-panel" aria-labelledby="portal-title">
-            <nav class="portal-brand-nav" aria-label="FCAT Clinic">
+            <nav class="portal-brand-nav" aria-label="FCAT HealthWard">
                 <a href="<?= htmlspecialchars($basePath . '/') ?>" class="portal-brand-link">
-                    <img src="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png" alt="">
-                    <span>FCAT Clinic</span>
+                    <img src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.2.png" alt="">
+                    <span>FCAT HealthWard</span>
                 </a>
                 <span class="portal-founded">Est. 1993</span>
             </nav>
 
             <div class="portal-brand-content">
                 <p class="portal-campus-name">Fernandez College of Arts and Technology</p>
-                <h1 class="portal-hero-title" id="portal-title">FCAT Clinic</h1>
+                <h1 class="portal-hero-title" id="portal-title">FCAT HealthWard</h1>
                 <p class="portal-brand-copy">Campus health records and clinic support, handled with clarity and care.</p>
 
                 <div class="portal-seal-stage">
@@ -118,8 +118,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             <div class="portal-marquee" aria-hidden="true">
                 <div class="portal-marquee-track">
-                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT Clinic</span><i>&middot;</i>
-                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT Clinic</span><i>&middot;</i>
+                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT HealthWard</span><i>&middot;</i>
+                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT HealthWard</span><i>&middot;</i>
                 </div>
             </div>
         </section>
@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <section class="portal-actions-panel" aria-labelledby="login-title">
             <div class="portal-actions-inner">
                 <div class="portal-signin-heading">
-                    <img class="modal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png" alt="FCAT Clinic Logo">
+                    <img class="modal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.2.png" alt="FCAT HealthWard Logo">
                     <div>
                         <p>Secure portal access</p>
                         <h2 id="login-title">Sign in to your account</h2>

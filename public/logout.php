@@ -30,7 +30,7 @@ if (isLoggedIn() && !$tokenValid) {
     <div class="login-wrapper">
         <div class="login-card">
             <h1>Sign out?</h1>
-            <p class="login-subtitle">Confirm that you want to sign out of the FCAT Clinic portal.</p>
+            <p class="login-subtitle">Confirm that you want to sign out of the FCAT HealthWard portal.</p>
             <form method="POST" action="logout.php">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
                 <div class="form-actions">

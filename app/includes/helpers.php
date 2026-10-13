@@ -23,7 +23,7 @@ function studentDashboardIcon(string $name): string
         'chevron-left' => '<path d="m15 18-6-6 6-6"></path>',
         'chevron-right' => '<path d="m9 6 6 6-6 6"></path>',
         'pin'       => '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"></path><circle cx="12" cy="10" r="2.4"></circle>',
-        'audit'     =>'<rect x="4.5" y="4" width="13" height="16.5" rx="2"></rect><path d="M8.5 4V2.75h5V4"></path><path d="M8 9h6"></path><path d="M8 12.5h3.5"></path><circle cx="17" cy="16.5" r="3.75"></circle><path d="M17 14.75v1.75l1.25 1"></path>',
+        'audit'     => '<rect x="4.5" y="4" width="13" height="16.5" rx="2"></rect><path d="M8.5 4V2.75h5V4"></path><path d="M8 9h6"></path><path d="M8 12.5h3.5"></path><circle cx="17" cy="16.5" r="3.75"></circle><path d="M17 14.75v1.75l1.25 1"></path>',
         'archive'   => '<rect x="3.5" y="4" width="17" height="4.5" rx="1"></rect><path d="M5 8.5v10a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-10"></path><path d="M10 12.5h4"></path>',
         'restore'   => '<path d="M4 12a8 8 0 1 0 2.35-5.65"></path><path d="M4 4.5v4h4"></path><path d="M12 8v4l2.5 2"></path>',
         'trash'     =>'<path d="M4.5 7h15"></path><path d="M9 3.5h6L16 7H8l1-3.5Z"></path><path d="m7 7 .75 13.5h8.5L17 7"></path><path d="M10 11v5.5"></path><path d="M14 11v5.5"></path>',
@@ -440,29 +440,18 @@ function visitTimesHtml(array $visit): string
         . '</span>';
 }
 
-/**
- * $filters (optional): 'search' matches patient, complaint, treatment, medicine, or staff name;
- * 'status' is open / completed / follow-up.
- */
-function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, array $filters = []): array
-{
-    if (!databaseTableExists($pdo, 'ClinicVisits')) {
-        return [];
-    }
-
-    [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
-    $sql = "SELECT v.*,
-               CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
-               CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
-               CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
-               COALESCE(v.StudentID, v.StaffID) AS PersonID,
-               a.FullName AS AdminName,
-               {$checkInSelect}
-            FROM ClinicVisits v
-            LEFT JOIN Students s ON s.StudentID = v.StudentID
+// Joins that give visit queries the patient (student or staff) and the admin who recorded the visit.
+const CLINIC_VISIT_PEOPLE_JOINS = "LEFT JOIN Students s ON s.StudentID = v.StudentID
             LEFT JOIN Admins staff ON staff.AdminID = v.StaffID
-            LEFT JOIN Admins a ON a.AdminID = v.AdminID
-            {$checkInJoin}";
+            LEFT JOIN Admins a ON a.AdminID = v.AdminID";
+
+/**
+ * WHERE clause shared by the clinic visit list and count queries. $filters (optional):
+ * 'search' matches patient, complaint, treatment, medicine, or staff name;
+ * 'status' is open / completed / follow-up; 'date' (Y-m-d) keeps only visits on that day.
+ */
+function clinicVisitWhereSql(?int $studentId, array $filters): array
+{
     $where = [];
     $params = [];
 
@@ -481,13 +470,40 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, arr
         $where[] = 'v.Status = ?';
         $params[] = $filters['status'];
     }
-
-    if ($where) {
-        $sql .= ' WHERE ' . implode(' AND ', $where);
+    $date = (string) ($filters['date'] ?? '');
+    $day = $date !== '' ? DateTimeImmutable::createFromFormat('!Y-m-d', $date) : false;
+    if ($day && $day->format('Y-m-d') === $date) {
+        // From midnight to the next midnight in the clinic's time zone (the DB session uses it too).
+        $where[] = 'v.CreatedAt >= ? AND v.CreatedAt < ?';
+        array_push($params, $day->format('Y-m-d 00:00:00'), $day->modify('+1 day')->format('Y-m-d 00:00:00'));
     }
-    $sql .= " ORDER BY v.CreatedAt DESC";
+
+    return [$where ? ' WHERE ' . implode(' AND ', $where) : '', $params];
+}
+
+/** Clinic visits, newest first. See clinicVisitWhereSql() for $filters; $limit 0 means no limit. */
+function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, array $filters = [], int $offset = 0): array
+{
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return [];
+    }
+
+    [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
+    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
+    $sql = "SELECT v.*,
+               CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
+               CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
+               CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
+               COALESCE(v.StudentID, v.StaffID) AS PersonID,
+               a.FullName AS AdminName,
+               {$checkInSelect}
+            FROM ClinicVisits v
+            " . CLINIC_VISIT_PEOPLE_JOINS . "
+            {$checkInJoin}
+            {$whereSql}
+            ORDER BY v.CreatedAt DESC, v.VisitID DESC";
     if ($limit > 0) {
-        $sql .= " LIMIT " . (int) $limit;
+        $sql .= ' LIMIT ' . (int) $limit . ' OFFSET ' . max(0, $offset);
     }
 
     $stmt = $pdo->prepare($sql);
@@ -495,19 +511,37 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, arr
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function countClinicVisits(PDO $pdo, ?int $studentId = null): int
+function countClinicVisits(PDO $pdo, ?int $studentId = null, array $filters = []): int
 {
     if (!databaseTableExists($pdo, 'ClinicVisits')) {
         return 0;
     }
 
-    if ($studentId !== null) {
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits WHERE StudentID = ?");
-        $stmt->execute([$studentId]);
-        return (int) $stmt->fetchColumn();
+    [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits v " . CLINIC_VISIT_PEOPLE_JOINS . $whereSql);
+    $stmt->execute($params);
+    return (int) $stmt->fetchColumn();
+}
+
+/** Visit totals per status ('open', 'completed', 'follow-up') for the same filters. */
+function countClinicVisitsByStatus(PDO $pdo, array $filters = []): array
+{
+    $counts = ['open' => 0, 'completed' => 0, 'follow-up' => 0];
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return $counts;
     }
 
-    return (int) $pdo->query("SELECT COUNT(*) FROM ClinicVisits")->fetchColumn();
+    [$whereSql, $params] = clinicVisitWhereSql(null, $filters);
+    $stmt = $pdo->prepare(
+        "SELECT v.Status, COUNT(*) AS Total FROM ClinicVisits v " . CLINIC_VISIT_PEOPLE_JOINS . $whereSql . " GROUP BY v.Status"
+    );
+    $stmt->execute($params);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (array_key_exists($row['Status'], $counts)) {
+            $counts[$row['Status']] = (int) $row['Total'];
+        }
+    }
+    return $counts;
 }
 
 function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
@@ -825,6 +859,97 @@ function checkOutClinicCheckIn(PDO $pdo, int $checkInId): string
         );
         $pdo->commit();
         return $checkedOutAt;
+    } catch (Throwable $error) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $error;
+    }
+}
+
+/**
+ * Changes the status of an open or follow-up visit; completed visits are final and can't be changed.
+ * Follow-up needs a date from today to 30 days ahead (rescheduling a follow-up is allowed). Reopening
+ * clears the follow-up date; completing keeps it as a record of the scheduled follow-up.
+ */
+function updateClinicVisitStatus(PDO $pdo, int $visitId, string $status, string $followUpDate): void
+{
+    $labels = ['open' => 'Open', 'completed' => 'Completed', 'follow-up' => 'Follow-up'];
+    if ($visitId <= 0) {
+        throw new InvalidArgumentException('Choose a valid visit.');
+    }
+    if (!isset($labels[$status])) {
+        throw new InvalidArgumentException('Choose a valid status.');
+    }
+
+    $newFollowUp = null;
+    if ($status === 'follow-up') {
+        $followUpDate = trim($followUpDate);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $followUpDate);
+        $today = new DateTimeImmutable('today');
+        if (!$date || $date->format('Y-m-d') !== $followUpDate) {
+            throw new InvalidArgumentException('Choose a follow-up date for a follow-up visit.');
+        }
+        if ($date < $today || $date > $today->modify('+30 days')) {
+            throw new InvalidArgumentException('Follow-up date must be between today and 30 days ahead.');
+        }
+        $newFollowUp = $date->format('Y-m-d');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('SELECT VisitID, StudentID, StaffID, Status, FollowUpDate FROM ClinicVisits WHERE VisitID = ? FOR UPDATE');
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$visit) {
+            throw new InvalidArgumentException('The selected visit was not found.');
+        }
+        if ($visit['Status'] === 'completed') {
+            throw new InvalidArgumentException("Completed visits are final and can't be changed.");
+        }
+        if (databaseTableExists($pdo, 'ClinicCheckIns')) {
+            $active = $pdo->prepare('SELECT COUNT(*) FROM ClinicCheckIns WHERE VisitID = ? AND CheckedOutAt IS NULL');
+            $active->execute([$visitId]);
+            if ((int) $active->fetchColumn() > 0) {
+                throw new InvalidArgumentException('This patient is still in the clinic. Check them out on the Check In page before changing the visit status.');
+            }
+        }
+        if ($status === $visit['Status'] && ($status !== 'follow-up' || $newFollowUp === $visit['FollowUpDate'])) {
+            throw new InvalidArgumentException('Choose a different status or follow-up date.');
+        }
+
+        $followUpToSave = match ($status) {
+            'follow-up' => $newFollowUp,
+            'completed' => $visit['FollowUpDate'],
+            default => null,
+        };
+        $update = $pdo->prepare("UPDATE ClinicVisits SET Status = ?, FollowUpDate = ? WHERE VisitID = ? AND Status <> 'completed'");
+        $update->execute([$status, $followUpToSave, $visitId]);
+
+        $isStaff = $visit['StudentID'] === null;
+        $subjectRole = $isStaff ? 'admin' : 'student';
+        $subjectId = (int) ($isStaff ? $visit['StaffID'] : $visit['StudentID']);
+        $followUpNote = $newFollowUp !== null ? ' (follow-up on ' . date('M j, Y', strtotime($newFollowUp)) . ')' : '';
+        auditLog(
+            $pdo,
+            'visits',
+            'visit.status_changed',
+            'Changed the clinic visit status for ' . (auditAccountName($pdo, $subjectRole, $subjectId) ?? 'a patient')
+                . ' from ' . ($labels[$visit['Status']] ?? $visit['Status']) . ' to ' . $labels[$status] . $followUpNote . '.',
+            ['subject_role' => $subjectRole, 'subject_id' => $subjectId]
+        );
+        if (!$isStaff) {
+            createNotification(
+                $pdo,
+                'student',
+                $subjectId,
+                'clinic_visit',
+                'Clinic visit updated',
+                'Your clinic visit is now marked ' . $labels[$status] . $followUpNote . '.',
+                getBasePath() . '/students/profile.php'
+            );
+        }
+        $pdo->commit();
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();

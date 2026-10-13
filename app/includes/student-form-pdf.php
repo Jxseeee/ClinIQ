@@ -129,8 +129,8 @@ function studentClinicFormHtml(array $student, array $g1, array $g2, array $medH
         trim((string) ($student['City'] ?? '')),
     ]));
     $consentLine = !empty($student['PrivacyConsentAt'])
-        ? 'Data Privacy Act (RA 10173) consent given through the FCAT Clinic portal on ' . date('F j, Y \a\t g:i A', strtotime($student['PrivacyConsentAt'])) . '.'
-        : 'Data Privacy Act (RA 10173) consent has not yet been recorded in the FCAT Clinic portal.';
+        ? 'Data Privacy Act (RA 10173) consent given through the FCAT HealthWard portal on ' . date('F j, Y \a\t g:i A', strtotime($student['PrivacyConsentAt'])) . '.'
+        : 'Data Privacy Act (RA 10173) consent has not yet been recorded in the FCAT HealthWard portal.';
 
     return '<!doctype html><html><head><meta charset="utf-8"><style>' . formPdfCss() . '</style></head><body>'
         . pdfLetterhead(

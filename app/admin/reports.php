@@ -39,11 +39,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
+        if ($reportAction === 'update_visit_status') {
+            updateClinicVisitStatus(
+                $pdo,
+                (int) ($_POST['visit_id'] ?? 0),
+                (string) ($_POST['status'] ?? ''),
+                (string) ($_POST['follow_up_date'] ?? '')
+            );
+            // Return to the same filtered view of the visit reports.
+            $keepFilters = [];
+            foreach (['medicine_search', 'stock_filter', 'visit_search', 'visit_status', 'visit_date', 'visit_page'] as $filterKey) {
+                if (is_string($_GET[$filterKey] ?? null) && trim($_GET[$filterKey]) !== '') {
+                    $keepFilters[$filterKey] = trim($_GET[$filterKey]);
+                }
+            }
+            header('Location: reports.php?' . http_build_query($keepFilters + ['success' => 'visit_status']) . '#visit-reports');
+            exit;
+        }
+
         $reportErrors[] = 'Invalid report action.';
     } catch (PDOException $error) {
-        $reportErrors[] = $reportAction === 'add_medicine' && $error->getCode() === '23000'
-            ? 'A medicine with that name already exists.'
-            : 'The medicine inventory could not be updated.';
+        $reportErrors[] = match (true) {
+            $reportAction === 'add_medicine' && $error->getCode() === '23000' => 'A medicine with that name already exists.',
+            $reportAction === 'update_visit_status' => 'The visit status could not be updated.',
+            default => 'The medicine inventory could not be updated.',
+        };
     } catch (InvalidArgumentException | RuntimeException $error) {
         $reportErrors[] = $error->getMessage();
     }
@@ -51,13 +71,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $medicineDialogHasError = $reportErrors !== [] && $reportAction === 'add_medicine';
 $stockDialogHasError = $reportErrors !== [] && $reportAction === 'add_stock';
+$visitStatusDialogHasError = $reportErrors !== [] && $reportAction === 'update_visit_status';
 
-$medicineSearch = trim((string) ($_GET['medicine_search'] ?? ''));
-$lowStockOnly = ($_GET['stock_filter'] ?? '') === 'low';
-$visitSearch = trim((string) ($_GET['visit_search'] ?? ''));
-$visitStatus = in_array(($_GET['visit_status'] ?? ''), ['open', 'completed', 'follow-up'], true)
-    ? (string) $_GET['visit_status']
+$queryString = static fn(string $key): string => is_string($_GET[$key] ?? null) ? trim($_GET[$key]) : '';
+$medicineSearch = $queryString('medicine_search');
+$lowStockOnly = $queryString('stock_filter') === 'low';
+$visitSearch = mb_substr($queryString('visit_search'), 0, 100);
+$visitStatus = in_array($queryString('visit_status'), ['open', 'completed', 'follow-up'], true)
+    ? $queryString('visit_status')
     : '';
+
+// Visit reports: an optional visit_date (Y-m-d) shows only that day's visits; without it every visit is listed.
+$today = new DateTimeImmutable('today');
+$visitDateValue = $queryString('visit_date');
+$visitDate = null;
+$visitDateError = '';
+if ($visitDateValue !== '') {
+    $parsedVisitDate = DateTimeImmutable::createFromFormat('!Y-m-d', $visitDateValue);
+    if (!$parsedVisitDate || $parsedVisitDate->format('Y-m-d') !== $visitDateValue) {
+        $visitDateError = 'Please choose a valid visit date. Showing visits from all dates instead.';
+    } elseif ($parsedVisitDate > $today) {
+        $visitDateError = 'The visit date cannot be in the future. Showing visits from all dates instead.';
+    } else {
+        $visitDate = $parsedVisitDate;
+    }
+}
+$visitFiltersActive = $visitSearch !== '' || $visitStatus !== '' || $visitDate !== null;
+
+// Builds a Reports URL that keeps the current filters, applying $changes (null removes a key).
+$reportsUrl = static function (array $changes) use ($queryString, $medicineSearch, $lowStockOnly, $visitSearch, $visitStatus, $visitDate): string {
+    $params = array_filter([
+        'medicine_search' => $medicineSearch,
+        'stock_filter' => $lowStockOnly ? 'low' : '',
+        'visit_search' => $visitSearch,
+        'visit_status' => $visitStatus,
+        'visit_date' => $visitDate ? $visitDate->format('Y-m-d') : '',
+        'visit_page' => ctype_digit($queryString('visit_page')) ? $queryString('visit_page') : '',
+    ], static fn(string $value): bool => $value !== '');
+    foreach ($changes as $key => $value) {
+        if ($value === null || $value === '') {
+            unset($params[$key]);
+        } else {
+            $params[$key] = $value;
+        }
+    }
+    $query = http_build_query($params);
+    return 'reports.php' . ($query !== '' ? '?' . $query : '') . '#visit-reports';
+};
 
 $medicineSummary = medicineInventorySummary($pdo);
 $allMedicines = fetchMedicines($pdo);
@@ -68,16 +128,15 @@ $existingMedicineNames = array_merge(
     array_map(static fn(array $medicine): array => ['name' => $medicine['Name'], 'archived' => false], $allMedicines),
     array_map(static fn(array $medicine): array => ['name' => $medicine['Name'], 'archived' => true], $archivedMedicines)
 );
-// Filtered in SQL and capped so the page stays fast as visit history grows; filters reach older visits.
-$visitReportLimit = 200;
-$visitReports = fetchClinicVisits(
-    $pdo,
-    null,
-    $visitReportLimit + 1,
-    ['search' => mb_substr($visitSearch, 0, 100), 'status' => $visitStatus]
-);
-$visitReportsTruncated = count($visitReports) > $visitReportLimit;
-$visitReports = array_slice($visitReports, 0, $visitReportLimit);
+// Filtered in SQL and paged so the page stays fast as visit history grows.
+$visitFilters = ['search' => $visitSearch, 'status' => $visitStatus, 'date' => $visitDate ? $visitDate->format('Y-m-d') : ''];
+$visitPerPage = 50;
+$visitTotal = countClinicVisits($pdo, null, $visitFilters);
+$visitPageCount = max(1, (int) ceil($visitTotal / $visitPerPage));
+$visitPage = min($visitPageCount, max(1, (int) $queryString('visit_page')));
+$visitReports = fetchClinicVisits($pdo, null, $visitPerPage, $visitFilters, ($visitPage - 1) * $visitPerPage);
+$visitStatusCounts = countClinicVisitsByStatus($pdo, $visitFilters);
+$visitWord = static fn(int $count): string => $count === 1 ? 'visit' : 'visits';
 
 $adminPageTitle = 'Reports';
 $adminContentClass = 'reports-content';
@@ -114,7 +173,7 @@ $adminBreadcrumbTrail = ['Reports'];
             <div class="alert alert-success">Medicine restored to the active inventory.</div>
         <?php endif; ?>
 
-        <?php if ($reportErrors && !$medicineDialogHasError && !$stockDialogHasError): ?>
+        <?php if ($reportErrors && !$medicineDialogHasError && !$stockDialogHasError && !$visitStatusDialogHasError): ?>
             <div class="alert alert-danger"><?= htmlspecialchars($reportErrors[0]) ?></div>
         <?php endif; ?>
 
@@ -165,21 +224,24 @@ $adminBreadcrumbTrail = ['Reports'];
             </section>
         <?php endif; ?>
 
-        <section class="reports-section medicine-inventory-section">
+        <section class="reports-section medicine-inventory-section" data-live-scope>
             <div class="reports-section-heading">
                 <div>
                     <h2>Medicine inventory</h2>
                     <p>Manage available clinic supplies and low-stock thresholds.</p>
                 </div>
-                <form method="GET" class="reports-filter-form">
-                    <input type="search" name="medicine_search" value="<?= htmlspecialchars($medicineSearch) ?>" placeholder="Search medicine">
+                <form method="GET" class="reports-filter-form" data-live-filter="[data-medicine-results]" data-live-params="medicine_search,stock_filter">
+                    <?php foreach (['visit_search' => $visitSearch, 'visit_status' => $visitStatus, 'visit_date' => $visitDate ? $visitDate->format('Y-m-d') : ''] as $keepKey => $keepValue): ?>
+                        <?php if ($keepValue !== ''): ?><input type="hidden" name="<?= $keepKey ?>" value="<?= htmlspecialchars($keepValue) ?>"><?php endif; ?>
+                    <?php endforeach; ?>
+                    <input type="search" name="medicine_search" value="<?= htmlspecialchars($medicineSearch) ?>" placeholder="Search medicine" aria-label="Search medicine">
                     <select name="stock_filter" aria-label="Stock filter">
                         <option value="">All stock</option>
                         <option value="low" <?= $lowStockOnly ? 'selected' : '' ?>>Low stock</option>
                     </select>
-                    <button type="submit" class="btn btn-secondary">Filter</button>
                 </form>
             </div>
+            <div class="alert alert-danger" data-live-filter-error hidden></div>
 
             <div class="reports-management-tools" aria-label="Medicine inventory actions">
                 <button type="button" class="btn reports-action-button" data-report-dialog-open="add-medicine-dialog" aria-haspopup="dialog" aria-controls="add-medicine-dialog">
@@ -280,7 +342,7 @@ $adminBreadcrumbTrail = ['Reports'];
                 </div>
             </dialog>
 
-            <div class="reports-table-wrap">
+            <div class="reports-table-wrap" data-medicine-results>
                 <table class="reports-table medicine-report-table">
                     <thead>
                         <tr><th>Medicine</th><th>Stock</th><th>Dosage</th><th>Description</th><th>Level</th><th>Actions</th></tr>
@@ -364,50 +426,255 @@ $adminBreadcrumbTrail = ['Reports'];
             </section>
         <?php endif; ?>
 
-        <section class="reports-section visit-reports-section">
+        <section class="reports-section visit-reports-section" id="visit-reports" data-live-scope>
             <div class="reports-section-heading">
                 <div>
                     <h2>Visit reports</h2>
-                    <p><?= date('F d, Y') ?> clinic activity</p>
+                    <p data-visit-subtitle>
+                        <?= $visitDate ? 'Visits on ' . htmlspecialchars($visitDate->format('l, F j, Y')) : 'All clinic visits, newest first' ?>
+                        &middot; <?= number_format($visitTotal) ?> <?= $visitWord($visitTotal) ?><?= $visitSearch !== '' || $visitStatus !== '' ? ' matching your filters' : '' ?>
+                    </p>
                 </div>
-                <form method="GET" class="reports-filter-form">
-                    <input type="search" name="visit_search" value="<?= htmlspecialchars($visitSearch) ?>" placeholder="Search patient or concern">
+                <form method="GET" action="reports.php#visit-reports" class="reports-filter-form visit-filter-form"
+                      data-live-filter="[data-visit-subtitle],[data-visit-actions],[data-visit-results]"
+                      data-live-params="visit_search,visit_status,visit_date,visit_page">
+                    <?php foreach (['medicine_search' => $medicineSearch, 'stock_filter' => $lowStockOnly ? 'low' : ''] as $keepKey => $keepValue): ?>
+                        <?php if ($keepValue !== ''): ?><input type="hidden" name="<?= $keepKey ?>" value="<?= htmlspecialchars($keepValue) ?>"><?php endif; ?>
+                    <?php endforeach; ?>
+                    <input type="search" name="visit_search" value="<?= htmlspecialchars($visitSearch) ?>" placeholder="Search patient or concern" aria-label="Search patient or concern" maxlength="100">
                     <select name="visit_status" aria-label="Visit status filter">
                         <option value="">All statuses</option>
                         <option value="open" <?= $visitStatus === 'open' ? 'selected' : '' ?>>Open</option>
                         <option value="completed" <?= $visitStatus === 'completed' ? 'selected' : '' ?>>Completed</option>
                         <option value="follow-up" <?= $visitStatus === 'follow-up' ? 'selected' : '' ?>>Follow-up</option>
                     </select>
-                    <button type="submit" class="btn btn-secondary">Filter</button>
+                    <label class="sr-only" for="visit-date">Visit date (leave empty for all dates)</label>
+                    <input type="date" id="visit-date" name="visit_date"
+                           value="<?= $visitDate ? htmlspecialchars($visitDate->format('Y-m-d')) : '' ?>"
+                           min="2000-01-01" max="<?= $today->format('Y-m-d') ?>"
+                           title="Choose a date to show only that day's visits">
+                    <span class="visit-filter-actions" data-visit-actions>
+                        <?php if (!$visitDate || $visitDate != $today): ?>
+                            <a href="<?= htmlspecialchars($reportsUrl(['visit_date' => $today->format('Y-m-d'), 'visit_page' => null])) ?>" class="btn btn-secondary" data-live-link>Today</a>
+                        <?php endif; ?>
+                        <?php if ($visitFiltersActive): ?>
+                            <a href="<?= htmlspecialchars($reportsUrl(['visit_search' => null, 'visit_status' => null, 'visit_date' => null, 'visit_page' => null])) ?>" class="btn btn-secondary" data-live-link>Show all</a>
+                        <?php endif; ?>
+                    </span>
                 </form>
             </div>
+            <div class="alert alert-danger visit-date-alert" data-live-filter-error hidden></div>
+            <?php if ($queryString('success') === 'visit_status'): ?>
+                <div class="alert alert-success visit-date-alert">Visit status updated.</div>
+            <?php endif; ?>
+
+            <?php
+                // When saving failed, reopen the dialog with what the admin had chosen.
+                $statusDialogStatus = $visitStatusDialogHasError ? (string) ($_POST['status'] ?? 'completed') : 'completed';
+                $statusDialogCurrent = $visitStatusDialogHasError && in_array($_POST['visit_current_status'] ?? '', ['open', 'follow-up'], true)
+                    ? (string) $_POST['visit_current_status']
+                    : 'open';
+            ?>
+            <dialog class="reports-dialog" id="visit-status-dialog" aria-labelledby="visit-status-dialog-title" aria-describedby="visit-status-dialog-description" <?= $visitStatusDialogHasError ? 'data-report-dialog-auto-open' : '' ?>>
+                <div class="reports-dialog-shell">
+                    <div class="reports-dialog-heading">
+                        <span class="reports-dialog-icon is-stock" aria-hidden="true"><?= studentDashboardIcon('medical') ?></span>
+                        <div>
+                            <h2 id="visit-status-dialog-title">Change visit status</h2>
+                            <p id="visit-status-dialog-description">Open and follow-up visits can be updated. Once a visit is completed it can no longer be changed.</p>
+                        </div>
+                        <button type="button" class="reports-dialog-close" data-report-dialog-close aria-label="Close change status dialog" title="Close">
+                            <?= studentDashboardIcon('close') ?>
+                        </button>
+                    </div>
+
+                    <form method="POST" class="reports-tool-form reports-dialog-form reports-stock-form">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken()) ?>">
+                        <input type="hidden" name="action" value="update_visit_status">
+                        <input type="hidden" name="visit_id" value="<?= $visitStatusDialogHasError ? (int) ($_POST['visit_id'] ?? 0) : 0 ?>" data-visit-status-id>
+                        <input type="hidden" name="visit_patient" value="<?= $visitStatusDialogHasError ? htmlspecialchars((string) ($_POST['visit_patient'] ?? '')) : '' ?>" data-visit-status-patient-input>
+                        <input type="hidden" name="visit_current_status" value="<?= htmlspecialchars($statusDialogCurrent) ?>" data-visit-status-current-input>
+                        <div class="alert alert-danger reports-dialog-alert" data-visit-status-error <?= $visitStatusDialogHasError ? '' : 'hidden' ?>><?= $visitStatusDialogHasError ? htmlspecialchars($reportErrors[0]) : '' ?></div>
+
+                        <p class="visit-status-dialog-summary reports-field-wide">
+                            <span>Patient: <strong data-visit-status-patient><?= $visitStatusDialogHasError ? htmlspecialchars((string) ($_POST['visit_patient'] ?? '')) : '' ?></strong></span>
+                            <span>Current status: <span class="visit-status visit-status-<?= htmlspecialchars($statusDialogCurrent) ?>" data-visit-status-current><?= $statusDialogCurrent === 'follow-up' ? 'Follow Up' : 'Open' ?></span></span>
+                        </p>
+
+                        <label class="reports-form-field reports-field-wide" for="visit-status-select">
+                            <span>New status</span>
+                            <select id="visit-status-select" name="status" required autofocus data-visit-status-select>
+                                <?php foreach (['completed' => 'Completed', 'follow-up' => 'Follow-up', 'open' => 'Open'] as $statusValue => $statusLabel): ?>
+                                    <option value="<?= $statusValue ?>" <?= $statusDialogStatus === $statusValue ? 'selected' : '' ?>><?= $statusLabel ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label class="reports-form-field reports-field-wide" for="visit-status-follow-up" data-visit-status-date-field <?= $statusDialogStatus === 'follow-up' ? '' : 'hidden' ?>>
+                            <span>Follow-up date</span>
+                            <input type="date" id="visit-status-follow-up" name="follow_up_date"
+                                   value="<?= $visitStatusDialogHasError ? htmlspecialchars((string) ($_POST['follow_up_date'] ?? '')) : '' ?>"
+                                   min="<?= $today->format('Y-m-d') ?>" max="<?= $today->modify('+30 days')->format('Y-m-d') ?>"
+                                   <?= $statusDialogStatus === 'follow-up' ? 'required' : 'disabled' ?>
+                                   data-visit-status-date>
+                        </label>
+                        <p class="visit-status-dialog-note reports-field-wide">Choosing <strong>Completed</strong> is final: the visit's status can't be changed after that.</p>
+
+                        <div class="reports-dialog-actions">
+                            <button type="button" class="btn btn-secondary" data-report-dialog-close>Cancel</button>
+                            <button type="submit" class="btn btn-success">Save status</button>
+                        </div>
+                    </form>
+                </div>
+            </dialog>
+
+            <div class="visit-report-results" data-visit-results>
+            <?php if ($visitDateError !== ''): ?>
+                <div class="alert alert-danger visit-date-alert"><?= htmlspecialchars($visitDateError) ?></div>
+            <?php endif; ?>
+
+            <div class="visit-report-summary" aria-label="Visit totals for the current view">
+                <span class="visit-summary-total"><strong><?= number_format($visitTotal) ?></strong> <?= $visitWord($visitTotal) ?></span>
+                <span class="visit-status visit-status-completed"><?= number_format($visitStatusCounts['completed']) ?> Completed</span>
+                <span class="visit-status visit-status-follow-up"><?= number_format($visitStatusCounts['follow-up']) ?> Follow Up</span>
+                <span class="visit-status visit-status-open"><?= number_format($visitStatusCounts['open']) ?> Open</span>
+            </div>
+
+            <?php if ($visitDate): ?>
+                <nav class="visit-day-nav" aria-label="Change visit date">
+                    <a href="<?= htmlspecialchars($reportsUrl(['visit_date' => $visitDate->modify('-1 day')->format('Y-m-d'), 'visit_page' => null])) ?>" class="btn btn-secondary" data-live-link>
+                        <?= studentDashboardIcon('chevron-left') ?> Previous day
+                    </a>
+                    <span class="visit-day-label"><?= studentDashboardIcon('calendar') ?><?= htmlspecialchars($visitDate->format('F j, Y')) ?></span>
+                    <?php if ($visitDate < $today): ?>
+                        <a href="<?= htmlspecialchars($reportsUrl(['visit_date' => $visitDate->modify('+1 day')->format('Y-m-d'), 'visit_page' => null])) ?>" class="btn btn-secondary" data-live-link>
+                            Next day <?= studentDashboardIcon('chevron-right') ?>
+                        </a>
+                    <?php else: ?>
+                        <span class="btn btn-secondary is-disabled" aria-disabled="true">Next day <?= studentDashboardIcon('chevron-right') ?></span>
+                    <?php endif; ?>
+                </nav>
+            <?php endif; ?>
 
             <div class="reports-table-wrap">
                 <table class="reports-table visit-report-table">
                     <thead>
-                        <tr><th>Patient name</th><th>Concern</th><th>Medicine given</th><th>Date &amp; time</th><th>Consulted by</th><th>Status</th></tr>
+                        <tr><th>Patient name</th><th>Concern &amp; care</th><th>Medicine given</th><th>Time</th><th>Consulted by</th><th>Status</th></tr>
                     </thead>
                     <tbody>
                     <?php if ($visitReports): ?>
+                        <?php $currentVisitDay = null; ?>
                         <?php foreach ($visitReports as $visit): ?>
+                            <?php
+                                $visitTime = strtotime($visit['TimeIn'] ?? $visit['CreatedAt']);
+                                $visitDay = date('Y-m-d', $visitTime);
+                                $isStudentVisit = ($visit['PersonType'] ?? 'student') === 'student';
+                                $visitDetails = array_filter([
+                                    'Vitals' => trim((string) ($visit['Vitals'] ?? '')),
+                                    'Assessment' => trim((string) ($visit['Assessment'] ?? '')),
+                                    'Treatment' => trim((string) ($visit['Treatment'] ?? '')),
+                                    'Disposition' => trim((string) ($visit['Disposition'] ?? '')),
+                                    'Follow-up' => !empty($visit['FollowUpDate']) ? date('M j, Y', strtotime($visit['FollowUpDate'])) : '',
+                                ], static fn(string $value): bool => $value !== '');
+                            ?>
+                            <?php if (!$visitDate && $visitDay !== $currentVisitDay): ?>
+                                <?php $currentVisitDay = $visitDay; ?>
+                                <tr class="visit-day-row">
+                                    <th colspan="6" scope="colgroup">
+                                        <?= studentDashboardIcon('calendar') ?>
+                                        <a href="<?= htmlspecialchars($reportsUrl(['visit_date' => $visitDay, 'visit_page' => null])) ?>" title="Show only this day's visits" data-live-link><?= htmlspecialchars(date('l, F j, Y', $visitTime)) ?></a>
+                                    </th>
+                                </tr>
+                            <?php endif; ?>
                             <tr>
-                                <td data-label="Patient"><strong><?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? ''))) ?></strong><small><?= ($visit['PersonType'] ?? 'student') === 'staff' ? 'Staff #' . (int) $visit['PersonID'] : '#' . (int) $visit['StudentID'] ?></small></td>
-                                <td data-label="Concern"><?= htmlspecialchars($visit['Complaint']) ?></td>
-                                <td data-label="Medicine given"><?= htmlspecialchars($visit['MedicineGiven'] ?: '—') ?><?php if (!empty($visit['MedicineDosage'])): ?><small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small><?php endif; ?><?php if (!empty($visit['MedicineQuantity'])): ?><small>Quantity: <?= (int) $visit['MedicineQuantity'] ?></small><?php endif; ?></td>
-                                <td data-label="Date"><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?><?= visitTimesHtml($visit) ?></td>
-                                <td data-label="Consulted by"><?= htmlspecialchars($visit['AdminName'] ?: 'Admin') ?></td>
-                                <td data-label="Status"><span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span></td>
+                                <td data-label="Patient">
+                                    <div>
+                                        <?php if ($isStudentVisit): ?>
+                                            <strong><a class="visit-patient-link" href="view-student.php?id=<?= (int) $visit['PersonID'] ?>"><?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? ''))) ?></a></strong>
+                                            <small>Student #<?= (int) $visit['PersonID'] ?></small>
+                                        <?php else: ?>
+                                            <strong><?= htmlspecialchars(trim((string) ($visit['FirstName'] ?? ''))) ?></strong>
+                                            <small>Staff</small>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                                <td data-label="Concern">
+                                    <div>
+                                        <span class="visit-complaint" title="<?= htmlspecialchars($visit['Complaint']) ?>"><?= htmlspecialchars(mb_strimwidth($visit['Complaint'], 0, 200, '…')) ?></span>
+                                        <?php foreach ($visitDetails as $detailLabel => $detailValue): ?>
+                                            <small title="<?= htmlspecialchars($detailValue) ?>"><b><?= htmlspecialchars($detailLabel) ?>:</b> <?= htmlspecialchars(mb_strimwidth($detailValue, 0, 140, '…')) ?></small>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </td>
+                                <td data-label="Medicine given">
+                                    <div>
+                                        <?= htmlspecialchars($visit['MedicineGiven'] ?: '—') ?>
+                                        <?php if (!empty($visit['MedicineDosage'])): ?><small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small><?php endif; ?>
+                                        <?php if (!empty($visit['MedicineQuantity'])): ?><small>Quantity: <?= (int) $visit['MedicineQuantity'] ?></small><?php endif; ?>
+                                    </div>
+                                </td>
+                                <td data-label="Time">
+                                    <div>
+                                        <?php if ($visitDate): ?><small><?= htmlspecialchars(date('M j, Y', $visitTime)) ?></small><?php endif; ?>
+                                        <?= visitTimesHtml($visit) ?>
+                                    </div>
+                                </td>
+                                <td data-label="Consulted by"><?= htmlspecialchars($visit['AdminName'] ?: '—') ?></td>
+                                <td data-label="Status">
+                                    <div class="visit-status-cell">
+                                        <?php if ($visit['Status'] === 'completed'): ?>
+                                            <span class="visit-status visit-status-completed" title="Completed visits are final">Completed</span>
+                                        <?php elseif ((int) ($visit['IsInClinic'] ?? 0) === 1): ?>
+                                            <span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>" title="The status can be edited after the patient is checked out"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span>
+                                        <?php else: ?>
+                                            <span class="visit-status visit-status-<?= htmlspecialchars($visit['Status']) ?>"><?= htmlspecialchars(ucwords(str_replace('-', ' ', $visit['Status']))) ?></span>
+                                            <button type="button" class="visit-status-edit"
+                                                    data-report-dialog-open="visit-status-dialog"
+                                                    data-visit-id="<?= (int) $visit['VisitID'] ?>"
+                                                    data-visit-patient="<?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? '')), ENT_QUOTES) ?>"
+                                                    data-visit-status="<?= htmlspecialchars($visit['Status']) ?>"
+                                                    data-visit-follow-up="<?= htmlspecialchars((string) ($visit['FollowUpDate'] ?? '')) ?>"
+                                                    aria-haspopup="dialog" aria-controls="visit-status-dialog"
+                                                    aria-label="Edit status for <?= htmlspecialchars(trim(($visit['FirstName'] ?? '') . ' ' . ($visit['LastName'] ?? '')), ENT_QUOTES) ?>">
+                                                Edit
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <tr><td colspan="6" class="reports-empty-cell">No clinic visits match the selected filter.</td></tr>
+                        <tr>
+                            <td colspan="6" class="reports-empty-cell">
+                                <?php if ($visitDate && $visitSearch === '' && $visitStatus === ''): ?>
+                                    No clinic visits were recorded on <?= htmlspecialchars($visitDate->format('F j, Y')) ?>.
+                                <?php elseif ($visitFiltersActive): ?>
+                                    No clinic visits match the selected filters.
+                                <?php else: ?>
+                                    No clinic visits have been recorded yet.
+                                <?php endif; ?>
+                            </td>
+                        </tr>
                     <?php endif; ?>
                     </tbody>
                 </table>
             </div>
-            <?php if ($visitReportsTruncated): ?>
-                <p class="audit-muted reports-limit-note">Showing the <?= (int) $visitReportLimit ?> most recent visits. Use the search or status filter to find older visits.</p>
+
+            <?php if ($visitPageCount > 1): ?>
+                <nav class="audit-pagination" aria-label="Visit report pages">
+                    <?php if ($visitPage > 1): ?>
+                        <a href="<?= htmlspecialchars($reportsUrl(['visit_page' => $visitPage > 2 ? $visitPage - 1 : null])) ?>" class="btn btn-secondary" data-live-link><?= studentDashboardIcon('chevron-left') ?> Newer</a>
+                    <?php else: ?>
+                        <span class="btn btn-secondary is-disabled" aria-disabled="true"><?= studentDashboardIcon('chevron-left') ?> Newer</span>
+                    <?php endif; ?>
+                    <span class="audit-page-status">Page <?= $visitPage ?> of <?= $visitPageCount ?></span>
+                    <?php if ($visitPage < $visitPageCount): ?>
+                        <a href="<?= htmlspecialchars($reportsUrl(['visit_page' => $visitPage + 1])) ?>" class="btn btn-secondary" data-live-link>Older <?= studentDashboardIcon('chevron-right') ?></a>
+                    <?php else: ?>
+                        <span class="btn btn-secondary is-disabled" aria-disabled="true">Older <?= studentDashboardIcon('chevron-right') ?></span>
+                    <?php endif; ?>
+                </nav>
             <?php endif; ?>
+            </div>
         </section>
     </div>
 

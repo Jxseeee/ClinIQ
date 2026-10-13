@@ -324,7 +324,7 @@ $studentContentClass = 'clinic-wizard-content';
         </ol>
 
         <header class="clinic-wizard-masthead">
-            <img src="../public/assets/images/favicon.png" alt="FCAT Clinic logo" class="clinic-wizard-logo">
+            <img src="../public/assets/images/fcat-clinic-logo.2.png" alt="FCAT HealthWard logo" class="clinic-wizard-logo">
             <div>
                 <h1 class="clinic-wizard-title">FCAT School Clinic Form 01</h1>
                 <p id="clinic-wizard-step-title"><?= htmlspecialchars($wizardStepMeta[$wizardStartStep][0]) ?></p>
@@ -710,7 +710,7 @@ $studentContentClass = 'clinic-wizard-content';
                 </div>
 
                 <div class="clinic-consent-column">
-                    <p>I acknowledge that it is my responsibility to inform the FCAT clinic of updates to my medical records.</p>
+                    <p>I acknowledge that it is my responsibility to inform FCAT HealthWard of updates to my medical records.</p>
                     <p>In an emergency, I ask the clinic to:</p>
                     <p class="clinic-consent-display-check">☐ Make the immediate care decision needed for the learner.</p>
                     <p class="clinic-consent-display-check">☐ Call the parent or guardian first.</p>

@@ -7,6 +7,8 @@ document.addEventListener('DOMContentLoaded', function () {
     initCheckInSearch();
     initCheckInMedicineFields();
     initCheckInFollowUpDate();
+    initLiveFilters();
+    initVisitStatusDialog();
     initPhoneFormatting();
     initPasswordToggle();
     initPasswordChecklist();
@@ -232,6 +234,129 @@ function initCheckInSearch() {
     if (input.value.trim() !== '') setOpen(true);
 }
 
+/*
+ * Live filters: a GET filter form marked data-live-filter refreshes its results as you type, choose an
+ * option, or pick a date, without reloading the page or pressing Enter.
+ *   data-live-filter = comma-separated selectors of the parts of the page to refresh
+ *   data-live-params = the query parameters this filter controls (other filters on the page are kept)
+ * Links marked data-live-link inside the same data-live-scope (pagination, "Today", day buttons) load
+ * the same way. Results come from the page's own server-rendered HTML, so no separate API is needed.
+ */
+function initLiveFilters() {
+    document.querySelectorAll('form[data-live-filter]').forEach(function (form) {
+        var scope = form.closest('[data-live-scope]') || form;
+        var selectors = form.dataset.liveFilter.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var ownedParams = (form.dataset.liveParams || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        var errorBox = scope.querySelector('[data-live-filter-error]');
+        var debounceTimer = null;
+        var controller = null;
+
+        function fieldFor(name) {
+            var field = form.elements.namedItem(name);
+            return field && field.type !== 'hidden' ? field : null;
+        }
+
+        // Current page URL, with this filter's parameters taken from the form (others left as they are).
+        function urlFromForm() {
+            var url = new URL(window.location.href);
+            url.searchParams.delete('success'); // one-time "saved" messages shouldn't come back on refresh
+            ownedParams.forEach(function (name) {
+                var field = fieldFor(name);
+                var value = field ? String(field.value || '').trim() : '';
+                if (value === '') url.searchParams.delete(name); else url.searchParams.set(name, value);
+            });
+            return url;
+        }
+
+        // Current page URL, with this filter's parameters taken from a link.
+        function urlFromLink(link) {
+            var target = new URL(link.href, window.location.href);
+            var url = new URL(window.location.href);
+            url.searchParams.delete('success');
+            ownedParams.forEach(function (name) {
+                var value = target.searchParams.get(name);
+                if (value === null || value === '') url.searchParams.delete(name); else url.searchParams.set(name, value);
+            });
+            if (target.hash) url.hash = target.hash;
+            return url;
+        }
+
+        function syncFields(url) {
+            ownedParams.forEach(function (name) {
+                var field = fieldFor(name);
+                if (field) field.value = url.searchParams.get(name) || '';
+            });
+        }
+
+        function showError(text) {
+            if (!errorBox) return;
+            errorBox.textContent = text;
+            errorBox.hidden = !text;
+        }
+
+        function load(url) {
+            if (controller) controller.abort();
+            controller = window.AbortController ? new AbortController() : null;
+            var regions = selectors.map(function (sel) { return scope.querySelector(sel); }).filter(Boolean);
+            regions.forEach(function (region) { region.classList.add('is-updating'); });
+
+            fetch(url.toString(), {
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                signal: controller ? controller.signal : undefined
+            }).then(function (response) {
+                if (!response.ok) throw new Error('The results could not be loaded (server error ' + response.status + '). Please refresh the page.');
+                return response.text();
+            }).then(function (html) {
+                var page = new DOMParser().parseFromString(html, 'text/html');
+                selectors.forEach(function (sel) {
+                    var current = scope.querySelector(sel);
+                    var next = page.querySelector(sel);
+                    if (current && next) current.replaceWith(document.importNode(next, true));
+                });
+                window.history.replaceState(null, '', url.toString());
+                showError('');
+            }).catch(function (error) {
+                if (error && error.name === 'AbortError') return;
+                regions.forEach(function (region) { region.classList.remove('is-updating'); });
+                showError(error && error.message ? error.message : 'The results could not be loaded. Please refresh the page.');
+            });
+        }
+
+        form.addEventListener('input', function (event) {
+            if (!event.target.matches('input[type="search"], input[type="text"]')) return;
+            window.clearTimeout(debounceTimer);
+            debounceTimer = window.setTimeout(function () { load(urlFromForm()); }, 350);
+        });
+
+        form.addEventListener('change', function (event) {
+            var field = event.target;
+            if (field.matches('select')) {
+                load(urlFromForm());
+            } else if (field.matches('input[type="date"]')) {
+                // min/max keep half-typed years (e.g. 0002) from loading; clearing the date shows all dates.
+                if (field.value === '' || field.checkValidity()) load(urlFromForm());
+            }
+        });
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            window.clearTimeout(debounceTimer);
+            load(urlFromForm());
+        });
+
+        scope.addEventListener('click', function (event) {
+            var link = event.target.closest('a[data-live-link]');
+            if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            if ((link.closest('[data-live-scope]') || form) !== scope) return;
+            event.preventDefault();
+            var url = urlFromLink(link);
+            syncFields(url);
+            load(url);
+        });
+    });
+}
+
 // The follow-up date only applies to follow-up visits: enabled and required for them, cleared otherwise.
 function initCheckInFollowUpDate() {
     var status = document.querySelector('[data-checkin-status]');
@@ -364,28 +489,13 @@ function initStudentNotificationPreference() {
 
 /* ── 3. Delete confirmation modal ────────────────────── */
 
+// Listens at the document level (and builds the popup on first use) so forms added later,
+// e.g. rows swapped in by a live filter, still ask for confirmation.
 function initDeleteModal() {
-    var forms = document.querySelectorAll('form.delete-form');
-    if (forms.length === 0) return;
-
-    var overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.setAttribute('aria-hidden', 'true');
-    overlay.innerHTML =
-        '<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-delete-title" aria-describedby="modal-delete-message">' +
-        '  <h3 id="modal-delete-title">Confirm delete</h3>' +
-        '  <p id="modal-delete-message">Are you sure? This action cannot be undone.</p>' +
-        '  <div class="modal-actions">' +
-        '    <button id="modal-confirm" class="btn btn-danger" type="button">Delete</button>' +
-        '    <button id="modal-cancel" class="btn btn-secondary" type="button">Cancel</button>' +
-        '  </div>' +
-        '</div>';
-    document.body.appendChild(overlay);
-
-    var confirmBtn = document.getElementById('modal-confirm');
-    var cancelBtn  = document.getElementById('modal-cancel');
-    var title = document.getElementById('modal-delete-title');
-    var message = document.getElementById('modal-delete-message');
+    var overlay = null;
+    var confirmBtn = null;
+    var title = null;
+    var message = null;
     var pendingForm = null;
     var activeTrigger = null;
 
@@ -393,41 +503,57 @@ function initDeleteModal() {
         overlay.classList.remove('active');
         overlay.setAttribute('aria-hidden', 'true');
         pendingForm = null;
-        if (activeTrigger) activeTrigger.focus();
+        if (activeTrigger && activeTrigger.isConnected) activeTrigger.focus();
         activeTrigger = null;
     }
 
-    forms.forEach(function (form) {
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            pendingForm = this;
-            activeTrigger = document.activeElement;
-            title.textContent = this.dataset.deleteTitle || 'Confirm delete';
-            message.textContent = this.dataset.deleteMessage || 'Are you sure? This action cannot be undone.';
-            confirmBtn.textContent = this.dataset.confirmLabel || 'Delete';
-            confirmBtn.className = 'btn ' + (this.dataset.confirmClass || 'btn-danger');
-            overlay.classList.add('active');
-            overlay.setAttribute('aria-hidden', 'false');
-            confirmBtn.focus();
+    function ensureOverlay() {
+        if (overlay) return;
+        overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML =
+            '<div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-delete-title" aria-describedby="modal-delete-message">' +
+            '  <h3 id="modal-delete-title">Confirm delete</h3>' +
+            '  <p id="modal-delete-message">Are you sure? This action cannot be undone.</p>' +
+            '  <div class="modal-actions">' +
+            '    <button id="modal-confirm" class="btn btn-danger" type="button">Delete</button>' +
+            '    <button id="modal-cancel" class="btn btn-secondary" type="button">Cancel</button>' +
+            '  </div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+
+        confirmBtn = overlay.querySelector('#modal-confirm');
+        title = overlay.querySelector('#modal-delete-title');
+        message = overlay.querySelector('#modal-delete-message');
+
+        confirmBtn.addEventListener('click', function () {
+            if (pendingForm) pendingForm.submit();
         });
-    });
+        overlay.querySelector('#modal-cancel').addEventListener('click', closeModal);
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closeModal();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && overlay.classList.contains('active')) closeModal();
+        });
+    }
 
-    confirmBtn.addEventListener('click', function () {
-        if (pendingForm) pendingForm.submit();
-    });
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (!(form instanceof HTMLFormElement) || !form.classList.contains('delete-form')) return;
 
-    cancelBtn.addEventListener('click', function () {
-        closeModal();
-    });
-
-    overlay.addEventListener('click', function (e) {
-        if (e.target === overlay) closeModal();
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && overlay.classList.contains('active')) {
-            closeModal();
-        }
+        e.preventDefault();
+        ensureOverlay();
+        pendingForm = form;
+        activeTrigger = document.activeElement;
+        title.textContent = form.dataset.deleteTitle || 'Confirm delete';
+        message.textContent = form.dataset.deleteMessage || 'Are you sure? This action cannot be undone.';
+        confirmBtn.textContent = form.dataset.confirmLabel || 'Delete';
+        confirmBtn.className = 'btn ' + (form.dataset.confirmClass || 'btn-danger');
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+        confirmBtn.focus();
     });
 }
 
@@ -1436,10 +1562,15 @@ function initReportDialogs() {
         dialog.close();
     }
 
-    document.querySelectorAll('[data-report-dialog-open]').forEach(function (button) {
-        button.addEventListener('click', function () {
-            openDialog(document.getElementById(this.dataset.reportDialogOpen), this);
-        });
+    // Delegated so buttons in rows added later (live filters) open dialogs too. The dialog gets a
+    // "reportdialog:open" event first, so it can fill its fields from the clicked button.
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-report-dialog-open]');
+        if (!button) return;
+        var dialog = document.getElementById(button.dataset.reportDialogOpen);
+        if (!dialog) return;
+        dialog.dispatchEvent(new CustomEvent('reportdialog:open', { detail: { trigger: button } }));
+        openDialog(dialog, button);
     });
 
     dialogs.forEach(function (dialog) {
@@ -1465,6 +1596,55 @@ function initReportDialogs() {
             openDialog(dialog, null);
         }
     });
+}
+
+// Reports → Visit reports "Change status" dialog: filled from the clicked row; the follow-up date is
+// shown (and required) only when Follow-up is chosen. Completed visits have no button, so they stay final.
+function initVisitStatusDialog() {
+    var dialog = document.getElementById('visit-status-dialog');
+    if (!dialog) return;
+
+    var idInput = dialog.querySelector('[data-visit-status-id]');
+    var patient = dialog.querySelector('[data-visit-status-patient]');
+    var current = dialog.querySelector('[data-visit-status-current]');
+    var select = dialog.querySelector('[data-visit-status-select]');
+    var dateField = dialog.querySelector('[data-visit-status-date-field]');
+    var dateInput = dialog.querySelector('[data-visit-status-date]');
+    var errorBox = dialog.querySelector('[data-visit-status-error]');
+    var labels = { open: 'Open', completed: 'Completed', 'follow-up': 'Follow Up' };
+    if (!idInput || !select || !dateField || !dateInput) return;
+
+    function syncDate() {
+        var isFollowUp = select.value === 'follow-up';
+        dateField.hidden = !isFollowUp;
+        dateInput.disabled = !isFollowUp;
+        dateInput.required = isFollowUp;
+    }
+
+    dialog.addEventListener('reportdialog:open', function (event) {
+        var trigger = event.detail && event.detail.trigger;
+        if (!trigger || !trigger.dataset.visitId) return;
+
+        var status = trigger.dataset.visitStatus || 'open';
+        var patientInput = dialog.querySelector('[data-visit-status-patient-input]');
+        var currentInput = dialog.querySelector('[data-visit-status-current-input]');
+        idInput.value = trigger.dataset.visitId;
+        if (patientInput) patientInput.value = trigger.dataset.visitPatient || '';
+        if (currentInput) currentInput.value = status;
+        if (patient) patient.textContent = trigger.dataset.visitPatient || 'this patient';
+        if (current) {
+            current.textContent = labels[status] || status;
+            current.className = 'visit-status visit-status-' + status;
+        }
+        // Completing is the usual next step, so it is preselected.
+        select.value = 'completed';
+        dateInput.value = trigger.dataset.visitFollowUp || '';
+        if (errorBox) errorBox.hidden = true;
+        syncDate();
+    });
+
+    select.addEventListener('change', syncDate);
+    syncDate();
 }
 
 function initMedicineDuplicateCheck() {

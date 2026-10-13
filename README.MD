@@ -240,7 +240,7 @@ New student accounts are created by admins only. Admin-created students use the 
 - Every entry records the date and time, who performed it, which account it concerns, a description, and the IP address; names are stored with the entry so history survives account deletion, and entries cannot be edited or deleted from the app
 - Logged events: sign-ins, failed sign-in attempts (recorded against the targeted account), sign-outs, password changes and admin password resets, account detail and profile photo changes, notification preference changes, clinic form completion/updates with Data Privacy Act consent (with which sections changed), guardian ID uploads, clinic/consent PDF downloads, student account creation/updates/deletion, announcements, check-ins and check-outs, medicine inventory changes, nurse changes, and chat resolve/reopen
 - Admins see all activity and can switch the "Show" selector to "My account only" or a specific student's log (deleted students with history stay selectable); the student record page links to that student's log
-- Students see only activity on their own account — the account always comes from the session, so URL parameters can't show another student's log. Actions by clinic staff appear as "FCAT Clinic staff" without the admin's name or IP address, and failed sign-ins on the account are highlighted
+- Students see only activity on their own account — the account always comes from the session, so URL parameters can't show another student's log. Actions by clinic staff appear as "FCAT HealthWard staff" without the admin's name or IP address, and failed sign-ins on the account are highlighted
 - Admins can download a student's Clinic Form (01) and Consent Form (02) as PDFs from the student record page
 
 ## Account Settings
@@ -272,7 +272,11 @@ New student accounts are created by admins only. Admin-created students use the 
 ## Reports
 
 - `app/admin/reports.php` combines medicine inventory and clinic visit reports
-- Administrators can add medicines or stock in focused pop-up dialogs, search inventory, filter low-stock items, and filter visit records
+- Administrators can add medicines or stock in focused pop-up dialogs, search inventory, and filter low-stock items
+- **Visit reports** list every clinic visit, newest first, grouped under date headings, 50 per page. Choosing a date shows only that day's visits (with Previous day / Next day buttons); without a date every visit is shown. Search and status filters combine with the date, and "Today" / "Show all" shortcuts sit next to the filters
+- Filters are live (no Filter button): typing in a search box, choosing an option, or picking a date refreshes the results in place. The same live filtering is used by the medicine inventory search and the Audit Log, and links such as pagination and Previous/Next day update without a full page reload
+- Each visit shows the patient (students link to their record), the complaint with vitals/assessment/treatment/disposition/follow-up date, medicine given, time in/out, who consulted, and the status; totals per status are shown for the current view
+- Open and follow-up visits have an **Edit** button next to their status (Completed, Follow-up with a date from today to 30 days ahead, or Open; a follow-up can also be rescheduled). Completed visits are final and can't be changed, and a visit can't be edited while the patient is still checked in (no Edit button is shown until they are checked out); the server enforces both. Changes are recorded in the audit log and the student is notified
 - Medicines are archived (with confirmation) instead of deleted; archived items are hidden from the inventory, stock dialog, and Check In, and can be restored from the Archived medicines section with one click (then use Add stock to record new quantities)
 - Duplicate medicine names are blocked (ignoring letter case and spacing), both live in the Add medicine dialog and on the server; the message points to Add stock or Restore as appropriate
 - Medicine summaries show total active medicine types and items at or below their configured low-stock threshold

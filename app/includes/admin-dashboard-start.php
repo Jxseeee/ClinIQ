@@ -38,7 +38,7 @@ $adminNavItems = [
     'index.php'         => ['Dashboard',     'dashboard', $basePath . '/public/index.php'],
     'reports.php'       => ['Reports',       'report',    $basePath . '/app/admin/reports.php'],
     'nurses.php'        => ['Nurses',        'nurse',     $basePath . '/app/admin/nurses.php'],
-    'check-in.php'      => ['Check In',       'medical',   $basePath . '/app/admin/check-in.php'],
+    'check-in.php'      => ['Check In',      'medical',   $basePath . '/app/admin/check-in.php'],
     'students.php'      => ['Students',      'records',   $basePath . '/app/admin/students.php'],
     'announcements.php' => ['Announcements', 'megaphone', $basePath . '/app/admin/announcements.php'],
     'messages.php'      => ['Messages',      'message',   $basePath . '/app/admin/messages.php'],
@@ -52,9 +52,9 @@ $adminPageIcon = $adminActivePage === 'settings.php'
 <aside class="student-sidebar">
     <div class="student-sidebar-brand">
         <a href="<?= $basePath ?>/public/index.php" class="student-sidebar-brand-link" aria-label="Go to dashboard">
-            <img src="<?= $basePath ?>/public/assets/images/favicon.png" alt="FCAT Clinic Logo">
+            <img src="<?= $basePath ?>/public/assets/images/fcat-clinic-logo.2.png" alt="FCAT HealthWard Logo">
             <span class="student-sidebar-brand-copy">
-                <strong>FCAT Clinic</strong>
+                <strong>FCAT HealthWard</strong>
                 <small>Campus health</small>
             </span>
         </a>
