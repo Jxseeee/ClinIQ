@@ -16,7 +16,8 @@ document.addEventListener('DOMContentLoaded', function () {
         inboxChannel: app ? (app.dataset.inboxChannel || '') : '',
         csrf: source.dataset.csrf,
         studentId: app ? app.dataset.studentId : '',
-        role: app ? app.dataset.role : ''
+        role: app ? app.dataset.role : '',
+        conversationStatus: app ? (app.dataset.conversationStatus || 'open') : 'open'
     };
 
     startChatHeartbeat();
@@ -26,6 +27,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var list = document.getElementById('chat-messages');
     var form = document.getElementById('chat-form');
     var input = document.getElementById('chat-input');
+    var resolutionStatus = document.getElementById('chat-resolution-status');
     var seenIds = new Set();
     var sendBtn = form ? form.querySelector('button[type="submit"]') : null;
 
@@ -65,6 +67,17 @@ document.addEventListener('DOMContentLoaded', function () {
             list.classList.remove('is-empty');
             list.classList.add('has-messages');
         }
+    }
+
+    function setConversationStatus(status) {
+        if (!status) return;
+
+        config.conversationStatus = status;
+        if (!resolutionStatus || config.role !== 'student') return;
+
+        var isResolved = status === 'resolved';
+        resolutionStatus.dataset.conversationStatus = status;
+        resolutionStatus.hidden = !isResolved;
     }
 
     function startChatHeartbeat() {
@@ -120,9 +133,10 @@ document.addEventListener('DOMContentLoaded', function () {
             url += '?student_id=' + encodeURIComponent(config.studentId);
         }
 
-        fetch(url, { credentials: 'same-origin' })
+        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (res) { return res.json(); })
             .then(function (data) {
+                setConversationStatus(data.conversation_status);
                 if (!data.messages) return;
 
                 var added = false;
@@ -194,6 +208,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         alert(data.error);
                         return;
                     }
+                    setConversationStatus(data.conversation_status);
                     appendMessage(data.message);
                 })
                 .catch(function () {
@@ -210,10 +225,18 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    setInterval(refreshMessages, 1000);
+    // Poll as a fallback: every 3s without Pusher, every 15s once Pusher's realtime connection is up.
+    var pollDelay = 3000;
+    function schedulePoll() {
+        setTimeout(function () {
+            if (!document.hidden) refreshMessages();
+            schedulePoll();
+        }, pollDelay);
+    }
+    schedulePoll();
 
     window.refreshChatThreads = function () {
-        fetch(config.apiBase + '/chat.php?action=threads', { credentials: 'same-origin' })
+        fetch(config.apiBase + '/chat.php?action=threads', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 if (!data.threads) return;
@@ -230,8 +253,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     var badge = unread > 0
                         ? '<span class="chat-unread-badge">' + unread + '</span>'
                         : '';
-                    var status = t.ConversationStatus
-                        ? '<span class="chat-status-mini">' + escapeHtml(t.ConversationStatus.charAt(0).toUpperCase() + t.ConversationStatus.slice(1)) + '</span>'
+                    var normalizedStatus = t.ConversationStatus ? t.ConversationStatus.toLowerCase() : '';
+                    var status = normalizedStatus
+                        ? '<span class="chat-status-mini is-' + escapeHtml(normalizedStatus) + '">' + escapeHtml(normalizedStatus.charAt(0).toUpperCase() + normalizedStatus.slice(1)) + '</span>'
                         : '';
                     var active = String(t.StudentID) === String(activeId) ? ' active' : '';
 
@@ -259,6 +283,10 @@ document.addEventListener('DOMContentLoaded', function () {
             auth: {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             }
+        });
+
+        pusher.connection.bind('state_change', function (states) {
+            pollDelay = states.current === 'connected' ? 15000 : 3000;
         });
 
         var chatChannel = pusher.subscribe(config.channel);

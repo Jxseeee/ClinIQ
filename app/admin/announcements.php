@@ -13,7 +13,7 @@ $adminPageTitle = 'Announcements';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Announcements</title>
     <link rel="stylesheet" href="../../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page admin-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
@@ -25,7 +25,6 @@ $adminPageTitle = 'Announcements';
                 <?php
                     $msg = match ($_GET['success']) {
                         'created' => 'Announcement created.',
-                        'updated' => 'Announcement updated.',
                         'deleted' => 'Announcement deleted.',
                         default   => 'Done.',
                     };
@@ -58,12 +57,13 @@ $adminPageTitle = 'Announcements';
                                     <?= date('M d, Y', strtotime($a['CreatedAt'])) ?>
                                     <small><?= date('g:i A', strtotime($a['CreatedAt'])) ?></small>
                                 </time>
-                                <a href="edit-announcement.php?id=<?= $a['AnnouncementID'] ?>" class="btn btn-warning">Edit</a>
-                                <form method="POST" action="delete-announcement.php" class="delete-form">
-                                    <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
-                                    <input type="hidden" name="id" value="<?= $a['AnnouncementID'] ?>">
-                                    <button type="submit" class="btn btn-danger">Delete</button>
-                                </form>
+                                <div class="announcement-row-actions">
+                                    <form method="POST" action="delete-announcement.php" class="delete-form announcement-delete-form">
+                                        <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>">
+                                        <input type="hidden" name="id" value="<?= $a['AnnouncementID'] ?>">
+                                        <button type="submit" class="btn announcement-action-button announcement-action-delete">Delete</button>
+                                    </form>
+                                </div>
                             </div>
                         </article>
                     <?php endforeach; ?>
@@ -73,6 +73,6 @@ $adminPageTitle = 'Announcements';
             <?php endif; ?>
         </section>
     <?php include __DIR__ . '/../includes/admin-dashboard-end.php'; ?>
-    <script src="../../public/assets/js/main.js"></script>
+    <script src="../../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

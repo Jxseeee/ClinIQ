@@ -1,0 +1,17 @@
+# Blocks web access to files that must never be downloadable (secrets, schema, source history,
+# server-side PHP includes). Browsers only need public/, app/admin/, app/api/, students/ and index.php.
+# Requires "AllowOverride All" for this folder (Ubuntu's Apache disables .htaccess by default).
+
+# Don't list folder contents (e.g. every profile photo in public/uploads/profiles/).
+Options -Indexes
+
+# Dotfiles (.env, .gitignore, .htaccess), database dumps, Composer/agent metadata, docs, logs, backups.
+<FilesMatch "(?i)^\.|\.(sql|md|lock|log|bak|backup|dist|example|ini|sh)$|^(composer|skills-lock)\.json$">
+    Require all denied
+</FilesMatch>
+
+# Folders that are only used server-side (source history, libraries, config, PHP includes, schema).
+# 404 hides that they exist at all.
+<IfModule mod_alias.c>
+    RedirectMatch 404 (?i)/(\.git|\.agents|\.cursor|\.vscode|vendor|database|app/config|app/includes)(/|$)
+</IfModule>

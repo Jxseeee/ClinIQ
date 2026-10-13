@@ -3,6 +3,8 @@ require __DIR__ . '/../config/auth.php';
 require_once __DIR__ . '/../includes/helpers.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 
 if (!isLoggedIn()) {
     http_response_code(401);
@@ -10,9 +12,9 @@ if (!isLoggedIn()) {
     exit;
 }
 
-if ($_SESSION['role'] === 'student' && studentMustChangePassword()) {
+if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
     http_response_code(403);
-    echo json_encode(['error' => 'Password change required']);
+    echo json_encode(['error' => 'Complete your clinic form before using chat.']);
     exit;
 }
 

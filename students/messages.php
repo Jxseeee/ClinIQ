@@ -11,13 +11,15 @@ markChatMessagesRead($pdo, $studentId, 'student');
 
 $rows = fetchChatMessages($pdo, $studentId);
 $messages = array_map(fn($row) => formatChatMessage($row, 'student'), $rows);
+$conversation = fetchChatConversation($pdo, $studentId);
+$conversationStatus = $conversation['Status'] ?? 'open';
 
 $basePath = getBasePath();
 $apiBase = $basePath . '/app/api';
 $pusher = pusherPublicConfig();
 $studentPageTitle = 'Messages';
 $studentContentClass = 'student-message-content';
-$studentBreadcrumbTrail = ['Dashboard'];
+$studentBreadcrumbTrail = ['Messages'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,7 +28,7 @@ $studentBreadcrumbTrail = ['Dashboard'];
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Messages</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page student-messages-body antialiased selection:bg-green-200 selection:text-green-950">
@@ -38,11 +40,22 @@ $studentBreadcrumbTrail = ['Dashboard'];
 
             <div class="student-chat-contact">
                 <span class="student-chat-contact-icon"><?= studentDashboardIcon('headset') ?></span>
-                <div>
+                <div class="student-chat-contact-copy">
                     <strong>Clinic Admin</strong>
                     <small>We typically reply within 24 hours</small>
-                    <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
                 </div>
+                <small class="student-chat-capacity">Active chats: <?= $activeChatCount ?> / <?= CHAT_ACTIVE_LIMIT ?></small>
+            </div>
+        </div>
+
+        <div id="chat-resolution-status"
+             class="chat-resolution-banner"
+             data-conversation-status="<?= htmlspecialchars($conversationStatus) ?>"
+             <?= $conversationStatus === 'resolved' ? '' : 'hidden' ?>>
+            <span class="chat-resolution-icon"><?= studentDashboardIcon('check') ?></span>
+            <div>
+                <strong>Concern resolved</strong>
+                <p>The clinic marked this conversation as resolved. Sending a new message will reopen it.</p>
             </div>
         </div>
 
@@ -65,6 +78,7 @@ $studentBreadcrumbTrail = ['Dashboard'];
                  data-channel="<?= htmlspecialchars(chatChannelName($studentId)) ?>"
                  data-csrf="<?= htmlspecialchars(csrfToken()) ?>"
                  data-student-id="<?= $studentId ?>"
+                 data-conversation-status="<?= htmlspecialchars($conversationStatus) ?>"
                  data-role="student">
 
                 <div id="chat-messages" class="chat-messages student-chat-messages <?= empty($messages) ? 'is-empty' : 'has-messages' ?>">
@@ -90,7 +104,7 @@ $studentBreadcrumbTrail = ['Dashboard'];
         </div>
     </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
-    <script src="../public/assets/js/main.js"></script>
+    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
     <script src="../public/assets/js/chat.js"></script>
 </body>
 </html>

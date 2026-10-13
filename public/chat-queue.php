@@ -3,12 +3,18 @@ require __DIR__ . '/../app/config/auth.php';
 require_once __DIR__ . '/../app/includes/helpers.php';
 
 if (!isLoggedIn()) {
-    header('Location: login.php');
+    header('Location: ' . getBasePath() . '/');
     exit;
 }
 
 if ($_SESSION['role'] === 'student' && studentMustChangePassword()) {
     header('Location: ../students/change-password.php?force=1');
+    exit;
+}
+
+// Students can't take a chat slot until their required clinic form is complete.
+if ($_SESSION['role'] === 'student' && !studentClinicFormComplete()) {
+    header('Location: ../students/edit-profile.php?required=1');
     exit;
 }
 
@@ -26,9 +32,10 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <noscript><meta http-equiv="refresh" content="5"></noscript>
     <title>Chat Queue</title>
     <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.min.css">
+    <link rel="stylesheet" href="assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="assets/images/favicon.png">
 </head>
 <body class="antialiased selection:bg-green-200 selection:text-green-950">
@@ -47,7 +54,7 @@ $apiUrl = $basePath . '/app/api/chat-presence.php';
             </div>
 
             <p class="text-muted">
-                This page checks every few seconds. You will be moved into chat automatically when a slot opens.
+                This page refreshes every 5 seconds. You will be moved into chat automatically when a slot opens.
             </p>
 
             <a href="<?= $_SESSION['role'] === 'admin' ? '../public/index.php' : '../students/index.php' ?>"

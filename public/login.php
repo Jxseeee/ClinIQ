@@ -1,13 +1,17 @@
 <?php
 require __DIR__ . '/../app/config/auth.php';
+require_once __DIR__ . '/../app/includes/helpers.php';
+
+$basePath = getBasePath();
+$assetsPath = $basePath . '/public/assets';
 
 if (isLoggedIn()) {
     if ($_SESSION['role'] === 'admin') {
-        header('Location: index.php');
+        header('Location: ' . $basePath . '/public/index.php');
     } elseif (studentMustChangePassword()) {
-        header('Location: ../students/change-password.php?force=1');
+        header('Location: ' . $basePath . '/students/change-password.php?force=1');
     } else {
-        header('Location: ../students/index.php');
+        header('Location: ' . $basePath . '/students/index.php');
     }
     exit;
 }
@@ -15,45 +19,69 @@ if (isLoggedIn()) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
+    $username = is_string($_POST['username'] ?? null) ? trim($_POST['username']) : '';
+    $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
     if ($username === '' || $password === '') {
         $error = 'Please fill in all fields.';
     } else {
         $stmt = $pdo->prepare("SELECT * FROM Admins WHERE Username = ?");
         $stmt->execute([$username]);
-        $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+        $admin = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-        if ($admin && password_verify($password, $admin['Password'])) {
+        // Student IDs are digits only; without this check MySQL would match "10001abc" to student 10001.
+        $student = null;
+        if (ctype_digit($username) && strlen($username) <= 10) {
+            $stmt = $pdo->prepare("SELECT * FROM Students WHERE StudentID = ?");
+            $stmt->execute([$username]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        }
+
+        $targetRole = $admin ? 'admin' : ($student ? 'student' : null);
+        $targetId = $admin ? (int) $admin['AdminID'] : ($student ? (int) $student['StudentID'] : null);
+        $throttled = loginIsThrottled($pdo, $targetRole, $targetId);
+
+        if ($throttled) {
+            $error = 'Too many failed sign-in attempts. Please wait ' . LOGIN_LOCKOUT_MINUTES . ' minutes and try again.';
+        } elseif ($admin && password_verify($password, $admin['Password'])) {
             session_regenerate_id(true);
             $_SESSION['user_id']   = $admin['AdminID'];
             $_SESSION['role']      = 'admin';
-            $_SESSION['user_name'] = $admin['FullName'];
-            header('Location: index.php');
+            $_SESSION['user_name'] = 'Admin';
+            auditLog($pdo, 'security', 'auth.login', 'Signed in as administrator.');
+            header('Location: ' . $basePath . '/public/index.php');
             exit;
-        }
-
-        $stmt = $pdo->prepare("SELECT * FROM Students WHERE StudentID = ?");
-        $stmt->execute([$username]);
-        $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($student && password_verify($password, $student['Password'])) {
+        } elseif ($student && password_verify($password, $student['Password'])) {
             session_regenerate_id(true);
             $_SESSION['user_id']   = $student['StudentID'];
             $_SESSION['role']      = 'student';
             $_SESSION['user_name'] = $student['FirstName'] . ' ' . $student['LastName'];
             $_SESSION['must_change_password'] = (bool) ($student['MustChangePassword'] ?? false);
+            auditLog($pdo, 'security', 'auth.login', 'Signed in to the student portal.');
 
             if ($_SESSION['must_change_password']) {
-                header('Location: ../students/change-password.php?force=1');
+                header('Location: ' . $basePath . '/students/change-password.php?force=1');
             } else {
-                header('Location: ../students/index.php');
+                header('Location: ' . $basePath . '/students/index.php');
             }
             exit;
+        } else {
+            if ($targetRole === null) {
+                // Do the same bcrypt work as a real check so response time doesn't reveal which IDs exist.
+                password_verify($password, '$2y$10$wmDKaC1keu.3.gLKoiMgGe6.o41USYZRn1TU3N6WpbeNW4HERwB46');
+            }
+            // Record the failed attempt against the targeted account so its owner can see it.
+            auditLog(
+                $pdo,
+                'security',
+                'auth.login_failed',
+                $targetRole !== null
+                    ? 'Failed sign-in attempt (wrong password).'
+                    : 'Failed sign-in attempt for unknown ID/username "' . mb_substr($username, 0, 60) . '".',
+                ['actor_role' => 'guest', 'actor_id' => null, 'subject_role' => $targetRole, 'subject_id' => $targetId]
+            );
+            $error = 'Invalid credentials. Please check your Student ID / username and password.';
         }
-
-        $error = 'Invalid credentials. Please check your Student ID / username and password.';
     }
 }
 ?>
@@ -63,126 +91,97 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
-    <link rel="stylesheet" href="assets/css/tailwind.css">
-    <link rel="stylesheet" href="assets/css/style.min.css">
-    <link rel="icon" type="image/png" href="assets/images/favicon.png">
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/tailwind.css">
+    <link rel="stylesheet" href="<?= htmlspecialchars($assetsPath) ?>/css/style.css?v=<?= assetVersion('css/style.css') ?>">
+    <link rel="icon" type="image/png" href="<?= htmlspecialchars($assetsPath) ?>/images/favicon.png">
 </head>
 <body class="login-page antialiased selection:bg-green-200 selection:text-green-950">
-    <div class="portal-login-shell">
-        <section class="portal-actions-panel">
+    <main class="portal-login-shell">
+        <section class="portal-brand-panel" aria-labelledby="portal-title">
+            <nav class="portal-brand-nav" aria-label="FCAT HealthWard">
+                <a href="<?= htmlspecialchars($basePath . '/') ?>" class="portal-brand-link">
+                    <img src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.2.png" alt="">
+                    <span>FCAT HealthWard</span>
+                </a>
+                <span class="portal-founded">Est. 1993</span>
+            </nav>
+
+            <div class="portal-brand-content">
+                <p class="portal-campus-name">Fernandez College of Arts and Technology</p>
+                <h1 class="portal-hero-title" id="portal-title">FCAT HealthWard</h1>
+                <p class="portal-brand-copy">Campus health records and clinic support, handled with clarity and care.</p>
+
+                <div class="portal-seal-stage">
+                    <img class="portal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.png" alt="Fernandez College of Arts and Technology seal">
+                </div>
+            </div>
+
+            <div class="portal-marquee" aria-hidden="true">
+                <div class="portal-marquee-track">
+                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT HealthWard</span><i>&middot;</i>
+                    <span>Student health</span><i>&middot;</i><span>Clinic records</span><i>&middot;</i><span>Private messaging</span><i>&middot;</i><span>FCAT HealthWard</span><i>&middot;</i>
+                </div>
+            </div>
+        </section>
+
+        <section class="portal-actions-panel" aria-labelledby="login-title">
             <div class="portal-actions-inner">
-                <h1>Your Campus Health Portal</h1>
-                <p class="portal-intro">Providing secure and efficient healthcare services for the FCAT community.</p>
+                <div class="portal-signin-heading">
+                    <img class="modal-logo" src="<?= htmlspecialchars($assetsPath) ?>/images/fcat-clinic-logo.2.png" alt="FCAT HealthWard Logo">
+                    <div>
+                        <p>Secure portal access</p>
+                        <h2 id="login-title">Sign in to your account</h2>
+                    </div>
+                </div>
+
+                <p class="portal-intro">Use your Student ID or administrator username to continue.</p>
 
                 <?php if (isset($_GET['logout']) && !$error): ?>
                     <div class="alert alert-success">You have been logged out.</div>
                 <?php endif; ?>
 
-                <div class="portal-action-card muted">
-                    <span class="portal-action-icon">+</span>
-                    <span>
-                        <strong>Get Started</strong>
-                        <small>Contact the admin to create your account</small>
-                    </span>
-                    <b>&rsaquo;</b>
+                <?php if ($error): ?>
+                    <div class="alert alert-danger modal-login-alert"><?= htmlspecialchars($error) ?></div>
+                <?php endif; ?>
+
+                <form method="POST" action="<?= htmlspecialchars($basePath . '/') ?>" class="modal-login-form portal-signin-form">
+                    <div class="form-group">
+                        <label for="username">Student ID or username</label>
+                        <input type="text" id="username" name="username"
+                               value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
+                               placeholder="Enter your ID or username" autocomplete="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="password" name="password"
+                                   placeholder="Enter your password" autocomplete="current-password" required>
+                            <button type="button" class="password-toggle" data-target="password">Show</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn modal-login-submit">Sign in</button>
+                </form>
+
+                <div class="portal-access-lanes">
+                    <article>
+                        <strong>Student access</strong>
+                        <span>Use the ID issued by FCAT.</span>
+                    </article>
+                    <article>
+                        <strong>New account</strong>
+                        <span>Request one from the clinic administrator.</span>
+                    </article>
                 </div>
 
-                <button type="button" class="portal-action-card portal-login-trigger" id="open-login-modal">
-                        <span class="portal-action-icon">&rarr;</span>
-                        <span>
-                            <strong>Already have an account?</strong>
-                            <small>Click here if you are already a member</small>
-                        </span>
-                        <b>&rsaquo;</b>
-                </button>
-
-                <div class="portal-action-card muted">
-                    <span class="portal-action-icon">i</span>
-                    <span>
-                        <strong>About</strong>
-                        <small>Clinic records, announcements, and messaging</small>
-                    </span>
-                    <b>&rsaquo;</b>
-                </div>
+                <footer class="portal-login-footer">
+                    Clinic System &middot; Fernandez College of Arts and Technology
+                </footer>
             </div>
         </section>
-
-        <section class="portal-brand-panel">
-            <div class="portal-brand-content">
-                <h2>FCAT ClinIQ<br>Management System</h2>
-                <div class="portal-title-rule"></div>
-                <p>A secured system to manage patient records and services.</p>
-
-                <img class="portal-logo" src="assets/images/fcat-clinic-logo.png" alt="FCAT ClinIQ Logo">
-
-                <div class="portal-feature-row">
-                    <div class="portal-feature">
-                        <span class="portal-feature-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <rect x="6" y="5" width="12" height="16" rx="2"></rect>
-                                <path d="M9 5a3 3 0 0 1 6 0"></path>
-                                <path d="M9 4h6v3H9z"></path>
-                                <path d="M12 9v4"></path>
-                                <path d="M10 11h4"></path>
-                                <path d="M9 15.5h6"></path>
-                            </svg>
-                        </span>
-                        <strong>Health Records</strong>
-                        <small>Access and manage your medical records securely</small>
-                    </div>
-                    <div class="portal-feature-divider"></div>
-                    <div class="portal-feature">
-                        <span class="portal-feature-icon">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 2.5 20.5 6v5.8c0 5-3.4 8.9-8.5 10.4-5.1-1.5-8.5-5.4-8.5-10.4V6L12 2.5Z"></path>
-                                <path d="M9.5 12v-1.4a2.5 2.5 0 0 1 5 0V12"></path>
-                                <rect x="8.5" y="12" width="7" height="4.8" rx="1"></rect>
-                                <path d="M12 14v1"></path>
-                            </svg>
-                        </span>
-                        <strong>Secure and Confidential</strong>
-                        <small>Your information is protected with the highest security</small>
-                    </div>
-                </div>
-            </div>
-        </section>
-    </div>
-
-    <div class="login-modal <?= $error ? 'is-open' : '' ?>" id="login-modal" aria-hidden="<?= $error ? 'false' : 'true' ?>">
-        <div class="login-modal-card" role="dialog" aria-modal="true" aria-labelledby="login-modal-title">
-            <button type="button" class="login-modal-back" id="close-login-modal">&larr; Back</button>
-            <img class="modal-logo" src="assets/images/favicon.png" alt="FCAT ClinIQ Logo">
-            <h2 id="login-modal-title"><span>Login to</span> FCAT ClinIQ</h2>
-
-            <?php if ($error): ?>
-                <div class="alert alert-danger modal-login-alert"><?= htmlspecialchars($error) ?></div>
-            <?php endif; ?>
-
-            <form method="POST" action="" class="modal-login-form">
-                <div class="form-group">
-                    <label for="username">Student ID / Username</label>
-                    <input type="text" id="username" name="username"
-                           value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
-                           placeholder="Enter Student ID or username" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <div class="password-wrapper">
-                        <input type="password" id="password" name="password"
-                               placeholder="Enter your password" required>
-                        <button type="button" class="password-toggle" data-target="password">Show</button>
-                    </div>
-                </div>
-                <div class="modal-login-options">
-                    <label class="remember-me">
-                        <input type="checkbox" name="remember" value="1">
-                        Remember Me
-                    </label>
-                </div>
-                <button type="submit" class="btn modal-login-submit">Sign in</button>
-            </form>
-        </div>
-    </div>
-    <script src="assets/js/main.js"></script>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+    <script src="<?= htmlspecialchars($assetsPath) ?>/js/motion.js"></script>
+    <script src="<?= htmlspecialchars($assetsPath) ?>/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>

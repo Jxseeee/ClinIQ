@@ -11,6 +11,7 @@ if (!$data) {
     exit;
 }
 
+auditLog($pdo, 'clinic_form', 'form.pdf_downloaded', 'Downloaded the clinic form PDF (Form 01).');
 downloadStudentPdf(
     studentClinicFormHtml($data['student'], $data['g1'], $data['g2'], $data['medHistory']),
     'clinic-form-' . $studentId . '.pdf'

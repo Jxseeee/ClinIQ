@@ -11,6 +11,13 @@ if (!isLoggedIn()) {
     exit;
 }
 
+// Students must change their default password and complete the clinic form before using chat.
+if ($_SESSION['role'] === 'student' && (studentMustChangePassword() || !studentClinicFormComplete())) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Complete your clinic form before using this feature.']);
+    exit;
+}
+
 $user = currentUser();
 $role = $user['role'];
 $userId = (int) $user['id'];
@@ -62,12 +69,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         exit;
     }
 
-    markChatMessagesRead($pdo, $studentId, $role);
+    // Only the chat page's own fetches (which send this header) mark messages read; other sites can't add it.
+    if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest') {
+        markChatMessagesRead($pdo, $studentId, $role);
+    }
     $rows = fetchChatMessages($pdo, $studentId);
     $messages = array_map(fn($row) => formatChatMessage($row, $role), $rows);
+    $conversation = fetchChatConversation($pdo, $studentId);
 
     echo json_encode([
         'messages'  => $messages,
+        'conversation_status' => $conversation['Status'] ?? 'open',
         'pusher'    => pusherPublicConfig(),
         'channel'   => chatChannelName($studentId),
         'student_id'=> $studentId,
@@ -112,10 +124,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $adminId = $role === 'admin' ? $userId : null;
     $row = sendChatMessage($pdo, $studentId, $role, $adminId, $content);
     $message = formatChatMessage($row, $role);
+    $conversation = fetchChatConversation($pdo, $studentId);
 
     broadcastChatMessage($studentId, $message);
 
-    echo json_encode(['message' => $message]);
+    echo json_encode([
+        'message' => $message,
+        'conversation_status' => $conversation['Status'] ?? 'open',
+    ]);
     exit;
 }
 

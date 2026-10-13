@@ -7,20 +7,21 @@ $data = fetchStudentFullProfile($pdo, (int)$_SESSION['user_id']);
 if (!$data) { header("Location: ../public/logout.php"); exit; }
 
 ['student' => $student, 'g1' => $g1, 'g2' => $g2, 'medHistory' => $medHistory] = $data;
-$profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
 $studentPageTitle = 'Patient Records';
 $uploadErrors = [];
 $clinicVisits = fetchClinicVisits($pdo, (int) $_SESSION['user_id']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_consent_image') {
     verifyCsrfToken();
+    $upload = is_array($_FILES['consent_image'] ?? null) ? $_FILES['consent_image'] : [];
+    $uploadTmp = (string) ($upload['tmp_name'] ?? '');
 
-    if (empty($_FILES['consent_image']['name']) || !is_uploaded_file($_FILES['consent_image']['tmp_name'])) {
+    if ((int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || $uploadTmp === '' || !is_uploaded_file($uploadTmp)) {
         $uploadErrors[] = 'Please choose an image to upload.';
-    } elseif ($_FILES['consent_image']['size'] > 5 * 1024 * 1024) {
+    } elseif ((int) ($upload['size'] ?? 0) > 5 * 1024 * 1024) {
         $uploadErrors[] = 'Image must be 5MB or smaller.';
     } else {
-        $mime = mime_content_type($_FILES['consent_image']['tmp_name']);
+        $mime = mime_content_type($uploadTmp);
         $extensions = [
             'image/jpeg' => 'jpg',
             'image/png'  => 'png',
@@ -29,26 +30,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
 
         if (!isset($extensions[$mime])) {
             $uploadErrors[] = 'Only JPG, PNG, or WEBP images are allowed.';
+        } elseif (getimagesize($uploadTmp) === false) {
+            $uploadErrors[] = 'The selected file is not a readable image.';
         } else {
             $uploadDir = dirname(__DIR__) . '/public/uploads/consent';
             if (!is_dir($uploadDir)) {
                 mkdir($uploadDir, 0775, true);
             }
 
-            $filename = 'consent_' . (int) $_SESSION['user_id'] . '_' . time() . '.' . $extensions[$mime];
+            // Random names keep guardian ID images unguessable; .htaccess also blocks direct access.
+            $filename = 'consent_' . (int) $_SESSION['user_id'] . '_' . bin2hex(random_bytes(16)) . '.' . $extensions[$mime];
             $target = $uploadDir . '/' . $filename;
 
-            if (move_uploaded_file($_FILES['consent_image']['tmp_name'], $target)) {
-                if (!empty($student['ConsentImagePath'])) {
-                    $oldPath = dirname(__DIR__) . '/' . ltrim($student['ConsentImagePath'], '/');
-                    if (is_file($oldPath)) {
-                        unlink($oldPath);
-                    }
-                }
-
+            if (move_uploaded_file($uploadTmp, $target)) {
                 $relativePath = 'public/uploads/consent/' . $filename;
                 $stmt = $pdo->prepare("UPDATE Students SET ConsentImagePath = ? WHERE StudentID = ?");
                 $stmt->execute([$relativePath, $_SESSION['user_id']]);
+                // Remove the previous image only after the new path is saved.
+                if (!empty($student['ConsentImagePath']) && $student['ConsentImagePath'] !== $relativePath) {
+                    deleteStoredConsentImage($student['ConsentImagePath']);
+                }
+                auditLog(
+                    $pdo,
+                    'clinic_form',
+                    'form.guardian_id_uploaded',
+                    empty($student['ConsentImagePath']) ? 'Uploaded a parent/guardian ID image.' : 'Replaced the parent/guardian ID image.'
+                );
                 header('Location: profile.php?upload=success');
                 exit;
             }
@@ -62,14 +69,7 @@ $medMap = [];
 foreach ($medHistory as $row) {
     $medMap[$row['Illness']] = $row;
 }
-$illnesses = [
-    'Asthma', 'Chicken Pox', 'Chronic Ear Infections or Otitis Media',
-    'Diabetes', 'Epilepsy', 'Fainting Spells', 'Febrile Convulsions',
-    'Heart Disorder', 'Hepatitis A', 'Hepatitis B',
-    'Measles', 'Meningitis', 'Mumps', 'Primary Complex',
-    'Rubella', 'Scoliosis', 'Skin Problems',
-    'Urinary Tract Infections', 'Whooping Cough', 'Others',
-];
+$illnesses = clinicIllnessList();
 $studentContentClass = 'patient-records-content';
 ?>
 <!DOCTYPE html>
@@ -79,14 +79,14 @@ $studentContentClass = 'patient-records-content';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.min.css">
+    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="patient-records-page">
         <div class="patient-records-actions">
-            <h1>FCAT School Clinic Form 01</h1>
+            <h1>Patient Records</h1>
             <div>
                 <a href="edit-profile.php" class="btn btn-success paper-download-btn">Edit</a>
             </div>
@@ -104,11 +104,6 @@ $studentContentClass = 'patient-records-content';
             <div class="alert alert-success">Consent image uploaded successfully.</div>
         <?php endif; ?>
 
-        <?php if (!$profileComplete): ?>
-            <div class="alert alert-warning">
-                Your clinic form is incomplete. Please <a href="edit-profile.php"><strong>fill it out</strong></a>.
-            </div>
-        <?php endif; ?>
 
         <?php if (!empty($uploadErrors)): ?>
             <div class="alert alert-danger">
@@ -121,6 +116,7 @@ $studentContentClass = 'patient-records-content';
         <?php endif; ?>
 
         <section class="clinic-paper-form">
+            <p class="paper-form-code">FCAT School Clinic Form 01</p>
             <div class="paper-section">
                 <h2>Student Information</h2>
                 <table class="paper-table">
@@ -135,17 +131,28 @@ $studentContentClass = 'patient-records-content';
             <div class="paper-section">
                 <h2>Parent/Guardian Information</h2>
                 <table class="paper-table">
-                    <tr><td><?= ($g1['Relationship'] ?? '') === 'Father' ? '☑' : '☐' ?> Father &nbsp; <?= ($g1['Relationship'] ?? '') === 'Stepfather' ? '☑' : '☐' ?> Stepfather &nbsp; <?= ($g1['Relationship'] ?? '') === 'Legal Guardian' ? '☑' : '☐' ?> Legal Guardian</td><td><?= ($g2['Relationship'] ?? '') === 'Mother' ? '☑' : '☐' ?> Mother &nbsp; <?= ($g2['Relationship'] ?? '') === 'Stepmother' ? '☑' : '☐' ?> Stepmother &nbsp; <?= ($g2['Relationship'] ?? '') === 'Legal Guardian' ? '☑' : '☐' ?> Legal Guardian</td></tr>
+                    <tr><td><?= guardianRelationshipMarks($g1['Relationship'] ?? '') ?></td><td><?= guardianRelationshipMarks($g2['Relationship'] ?? '') ?></td></tr>
                     <tr><td>Last Name: <?= htmlspecialchars($g1['LastName'] ?? '') ?></td><td>Last Name: <?= htmlspecialchars($g2['LastName'] ?? '') ?></td></tr>
                     <tr><td>First Name: <?= htmlspecialchars($g1['FirstName'] ?? '') ?></td><td>First Name: <?= htmlspecialchars($g2['FirstName'] ?? '') ?></td></tr>
+                    <tr><td>Office Phone: <?= htmlspecialchars($g1['OfficePhone'] ?? '') ?></td><td>Office Phone: <?= htmlspecialchars($g2['OfficePhone'] ?? '') ?></td></tr>
                     <tr><td>Mobile Number: <?= htmlspecialchars($g1['MobileNumber'] ?? '') ?></td><td>Mobile Number: <?= htmlspecialchars($g2['MobileNumber'] ?? '') ?></td></tr>
                     <tr><td>Email Address: <?= htmlspecialchars($g1['EmailAddress'] ?? '') ?></td><td>Email Address: <?= htmlspecialchars($g2['EmailAddress'] ?? '') ?></td></tr>
+                    <tr><td>Emergency Contact: <?= htmlspecialchars(trim(($g1['EmergencyContactName'] ?? '') . ' ' . ($g1['EmergencyContactMobile'] ?? ''))) ?></td><td>Emergency Contact: <?= htmlspecialchars(trim(($g2['EmergencyContactName'] ?? '') . ' ' . ($g2['EmergencyContactMobile'] ?? ''))) ?></td></tr>
+                    <tr><td>Custodial Parent/Guardian: <?= htmlspecialchars(ucwords(str_replace('guardian', 'Guardian ', $student['CustodialParent'] ?? ''))) ?></td><td>Correspondence To: <?= htmlspecialchars(ucwords(str_replace('guardian', 'Guardian ', $student['CorrespondenceTo'] ?? ''))) ?></td></tr>
                 </table>
             </div>
 
             <div class="paper-section">
-                <h2>Past History</h2>
-                <table class="paper-table paper-history-table">
+                <h2>Past History <span class="paper-section-note">(Please check if the child has a past history of the following diseases, please provide the date and age)</span></h2>
+                <table class="paper-table paper-history-table paper-history-admin-table">
+                    <tr>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                        <th>Illness</th>
+                        <th>Date</th>
+                        <th>Age</th>
+                    </tr>
                     <?php foreach (array_chunk($illnesses, 2) as $pair): ?>
                         <tr>
                             <?php foreach ($pair as $illness): ?>
@@ -155,8 +162,11 @@ $studentContentClass = 'patient-records-content';
                             <?php endforeach; ?>
                         </tr>
                     <?php endforeach; ?>
+                    <tr>
+                        <td colspan="3">Medication/s taken on regular basis:</td>
+                        <td colspan="3"><?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></td>
+                    </tr>
                 </table>
-                <p><strong>Medication/s taken on regular basis:</strong> <?= htmlspecialchars($student['MedicationsRegular'] ?? '') ?></p>
             </div>
 
             <div class="paper-section">
@@ -171,19 +181,29 @@ $studentContentClass = 'patient-records-content';
 
         <section class="student-announcements-panel admin-full-panel clinic-visit-panel">
             <div class="dashboard-section-title">
-                <span><?= studentDashboardIcon('records') ?></span>
+                <span><?= studentDashboardIcon('medical') ?></span>
                 <h2>Clinic Visit History</h2>
             </div>
 
             <?php if (!empty($clinicVisits)): ?>
-                <div class="appointment-card-list">
+                <div class="clinic-visit-card-list">
                     <?php foreach ($clinicVisits as $visit): ?>
-                        <article class="appointment-card">
+                        <article class="clinic-visit-card">
                             <div>
-                                <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
+                                <h3><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?></h3>
+                                <?= visitTimesHtml($visit) ?>
                                 <p><?= htmlspecialchars($visit['Complaint']) ?></p>
                                 <?php if (!empty($visit['Treatment'])): ?>
                                     <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
+                                <?php endif; ?>
+                                <?php if (!empty($visit['MedicineGiven'])): ?>
+                                    <small>Medicine Given: <?= htmlspecialchars($visit['MedicineGiven']) ?></small>
+                                <?php endif; ?>
+                                <?php if (!empty($visit['MedicineDosage'])): ?>
+                                    <small>Dosage: <?= htmlspecialchars($visit['MedicineDosage']) ?></small>
+                                <?php endif; ?>
+                                <?php if (!empty($visit['MedicineQuantity'])): ?>
+                                    <small>Quantity Given: <?= (int) $visit['MedicineQuantity'] ?></small>
                                 <?php endif; ?>
                             </div>
                             <strong><?= htmlspecialchars(ucfirst($visit['Status'])) ?></strong>
@@ -197,16 +217,17 @@ $studentContentClass = 'patient-records-content';
 
         <section class="consent-paper-form">
             <div class="consent-paper-inner">
+                <p class="paper-form-code">FCAT School Clinic Form 02</p>
                 <h2>CONSENT FORM</h2>
                 <p>I give consent for my child to receive the following:</p>
-                <div class="consent-line"><span>First aid treatment at the school clinic</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
-                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
-                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span>☐ YES &nbsp;&nbsp;&nbsp;&nbsp; ☐ NO</span></div>
+                <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks(null) ?></span></div>
+                <div class="consent-line"><span>Non-prescription medicine in case of emergency</span><span><?= consentChoiceMarks(null) ?></span></div>
+                <div class="consent-line"><span>Should a student require hospitalization, we encourage them to visit one of the nearby hospitals:</span><span><?= consentChoiceMarks(null) ?></span></div>
                 <p>I acknowledge that it is my responsibility to inform FCAT school clinic of any update in my child's medical records.</p>
                 <p>Safety and well-being of the learner is the top priority. If in case of emergency, we ask the parents to:</p>
                 <p>☐ give the school consent for the decision to attend the learner's need.</p>
                 <p>☐ call the parents/guardians first.</p>
-                <p>☐ Others: Please Specify ______________________________</p>
+                <p>☐ Others: <?= htmlspecialchars($student['EmergencyOther'] ?? '') ?></p>
                 <div class="consent-signature">
                     <span>Parent's/Guardian's Name: ______________________________</span>
                     <span>Signature: ______________________________</span>
@@ -241,6 +262,6 @@ $studentContentClass = 'patient-records-content';
         </section>
     </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
-    <script src="../public/assets/js/main.js"></script>
+    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
 </body>
 </html>
