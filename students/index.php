@@ -10,6 +10,8 @@ $student = $data['student'] ?? [];
 $announcements = fetchAnnouncements($pdo);
 $latestVisit = fetchClinicVisits($pdo, $studentId, 1)[0] ?? null;
 $clinicOccupancy = fetchClinicOccupancy($pdo);
+// The clinic is open only while at least one nurse is switched on duty (on the Nurses page).
+$clinicIsOpen = (int) $clinicOccupancy['NursesOnDuty'] > 0;
 
 cleanupChatPresence($pdo);
 $queueWaiting = (int) $pdo->query("SELECT COUNT(*) FROM ChatQueue")->fetchColumn();
@@ -57,10 +59,15 @@ $studentPageTitle = 'Dashboard';
                 <article class="student-stat-card">
                     <div>
                         <h2>Clinic Status</h2>
-                        <strong class="status-open">OPEN</strong>
-                        <small>8:00 AM - 5:00 PM</small>
+                        <?php if ($clinicIsOpen): ?>
+                            <strong class="status-open">OPEN</strong>
+                            <small>8:00 AM - 5:00 PM</small>
+                        <?php else: ?>
+                            <strong class="status-closed">CLOSED</strong>
+                            <small>No nurse is on duty right now</small>
+                        <?php endif; ?>
                     </div>
-                    <span class="stat-icon green"><?= studentDashboardIcon('check') ?></span>
+                    <span class="stat-icon <?= $clinicIsOpen ? 'green' : 'pink' ?>"><?= studentDashboardIcon($clinicIsOpen ? 'check' : 'moon') ?></span>
                 </article>
 
                 <article class="student-stat-card">

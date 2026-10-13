@@ -358,11 +358,15 @@ function initLiveFilters() {
 }
 
 // The follow-up date only applies to follow-up visits: enabled and required for them, cleared otherwise.
+// Check In can show two visit forms (the selected person, and "add a patient"), so each form is wired on its own.
 function initCheckInFollowUpDate() {
-    var status = document.querySelector('[data-checkin-status]');
-    var followUp = document.querySelector('[data-checkin-follow-up]');
-    if (!status || !followUp) return;
+    document.querySelectorAll('[data-checkin-status]').forEach(function (status) {
+        var followUp = (status.form || document).querySelector('[data-checkin-follow-up]');
+        if (followUp) wireCheckInFollowUpDate(status, followUp);
+    });
+}
 
+function wireCheckInFollowUpDate(status, followUp) {
     function syncFollowUp() {
         var isFollowUp = status.value === 'follow-up';
         followUp.disabled = !isFollowUp;
@@ -376,11 +380,15 @@ function initCheckInFollowUpDate() {
 }
 
 function initCheckInMedicineFields() {
-    var medicine = document.querySelector('[data-checkin-medicine]');
-    var dosage = document.querySelector('[data-checkin-medicine-dosage]');
-    var quantity = document.querySelector('[data-checkin-medicine-quantity]');
-    if (!medicine || !dosage || !quantity) return;
+    document.querySelectorAll('[data-checkin-medicine]').forEach(function (medicine) {
+        var scope = medicine.form || document;
+        var dosage = scope.querySelector('[data-checkin-medicine-dosage]');
+        var quantity = scope.querySelector('[data-checkin-medicine-quantity]');
+        if (dosage && quantity) wireCheckInMedicineFields(medicine, dosage, quantity);
+    });
+}
 
+function wireCheckInMedicineFields(medicine, dosage, quantity) {
     function syncMedicineFields(clearValues) {
         var selectedOption = medicine.options[medicine.selectedIndex];
         var hasMedicine = medicine.value !== '';

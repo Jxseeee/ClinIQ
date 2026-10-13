@@ -41,3 +41,28 @@ ALTER TABLE ChatQueue MODIFY UserRole ENUM('student', 'admin', 'nurse') NOT NULL
 ALTER TABLE AuditLogs
     MODIFY ActorRole ENUM('admin', 'student', 'nurse', 'guest') NOT NULL,
     MODIFY SubjectRole ENUM('admin', 'student', 'nurse') NULL;
+
+-- Nurses can be checked in as patients. PatientNurseID is the nurse who is the patient
+-- (ClinicVisits.NurseID above is the nurse who recorded the visit).
+ALTER TABLE ClinicVisits
+    ADD COLUMN PatientNurseID INT NULL AFTER StaffID,
+    ADD INDEX idx_clinic_visits_patient_nurse_created (PatientNurseID, CreatedAt),
+    ADD CONSTRAINT fk_clinic_visits_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE;
+ALTER TABLE ClinicCheckIns
+    MODIFY PersonType ENUM('student', 'staff', 'nurse') NOT NULL,
+    ADD COLUMN PatientNurseID INT NULL AFTER StaffID,
+    ADD INDEX idx_checkins_patient_nurse_active (PatientNurseID, CheckedOutAt),
+    ADD CONSTRAINT fk_checkins_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE;
+
+-- Each visit and check-in still has exactly one patient, which may now be a nurse.
+-- (Skip the two DROP CHECK lines if your tables never had these checks.)
+ALTER TABLE ClinicVisits DROP CHECK chk_clinic_visit_person;
+ALTER TABLE ClinicVisits ADD CONSTRAINT chk_clinic_visit_person CHECK (
+    ((StudentID IS NOT NULL) + (StaffID IS NOT NULL) + (PatientNurseID IS NOT NULL)) = 1
+);
+ALTER TABLE ClinicCheckIns DROP CHECK chk_checkin_person;
+ALTER TABLE ClinicCheckIns ADD CONSTRAINT chk_checkin_person CHECK (
+    (PersonType = 'student' AND StudentID IS NOT NULL AND StaffID IS NULL AND PatientNurseID IS NULL)
+    OR (PersonType = 'staff' AND StaffID IS NOT NULL AND StudentID IS NULL AND PatientNurseID IS NULL)
+    OR (PersonType = 'nurse' AND PatientNurseID IS NOT NULL AND StudentID IS NULL AND StaffID IS NULL)
+);

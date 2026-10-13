@@ -3798,6 +3798,11 @@ table tr:hover {
     color: var(--forest-bright);
 }
 
+/* No nurse on duty: the clinic shows as closed. */
+.student-stat-card .status-closed {
+    color: var(--maroon);
+}
+
 .stat-icon,
 .stat-icon.green,
 .stat-icon.admin-stat-blue {
@@ -7961,6 +7966,24 @@ button.birth-date-calendar-day:hover {
     text-align: center;
 }
 
+/* "Patient not in the list?": add faculty, non-teaching staff or a visitor, then check them in. */
+.checkin-new-patient {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+}
+
+.checkin-new-patient > summary {
+    cursor: pointer;
+    color: var(--forest-bright);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.checkin-new-patient[open] > summary {
+    margin-bottom: 12px;
+}
+
 @media (max-width: 1100px) {
     .checkin-layout {
         grid-template-columns: 1fr;
@@ -9934,6 +9957,88 @@ button.birth-date-calendar-day:hover {
 
     html[data-theme="dark"] .privacy-consent-check:has(input:checked) {
         background: #1d3a2b;
+    }
+
+    /* Student clinic form (students/edit-profile.php): parts that are hard-coded light in light mode. */
+    html[data-theme="dark"] .clinic-wizard-masthead {
+        background: var(--surface);
+    }
+
+    html[data-theme="dark"] .clinic-wizard-node {
+        background: var(--surface);
+    }
+
+    html[data-theme="dark"] .clinic-wizard-progress li.is-complete .clinic-wizard-node,
+    html[data-theme="dark"] .clinic-wizard-progress li.is-active .clinic-wizard-node {
+        background: var(--maroon);
+        color: #1a0a0f;
+    }
+
+    /* Steps are flat sections on the page in light mode; keep them flat instead of dark cards. */
+    html[data-theme="dark"] .student-dashboard-page .clinic-wizard-step.form-section {
+        background: transparent;
+        box-shadow: none;
+    }
+
+    html[data-theme="dark"] .clinic-wizard-step[data-wizard-step="2"] .guardian-col,
+    html[data-theme="dark"] .clinic-consent-preview {
+        border-color: var(--line);
+        background: var(--surface);
+    }
+
+    html[data-theme="dark"] .clinic-wizard-action-next {
+        border-color: #3f6b52;
+        background: #1d3a2b;
+        color: #b8e8c9;
+    }
+
+    html[data-theme="dark"] .clinic-wizard-action-next:hover {
+        border-color: #68ca91;
+        background: #24493a;
+        color: #e5fff0;
+    }
+
+    html[data-theme="dark"] .clinic-wizard-action-save,
+    html[data-theme="dark"] .clinic-wizard-action-save:hover {
+        border-color: #2b805a;
+        background: #2b805a;
+        color: #fff;
+    }
+
+    html[data-theme="dark"] .clinic-wizard-action-save:hover {
+        border-color: #339868;
+        background: #339868;
+    }
+
+    html[data-theme="dark"] .clinic-wizard-action-back,
+    html[data-theme="dark"] .clinic-wizard-action-download {
+        border-color: #3a4f41;
+        color: var(--forest-bright);
+    }
+
+    html[data-theme="dark"] .birth-date-trigger {
+        border-color: #33473a;
+        background: #0f1914;
+    }
+
+    html[data-theme="dark"] .birth-date-trigger:hover {
+        border-color: #4a6152;
+    }
+
+    html[data-theme="dark"] .birth-date-calendar {
+        background: var(--surface);
+    }
+
+    html[data-theme="dark"] button.birth-date-calendar-day:hover {
+        border-color: #3a4f41;
+    }
+
+    html[data-theme="dark"] .birth-date-calendar-day.is-selected {
+        color: #1a0a0f;
+    }
+
+    html[data-theme="dark"] .birth-date-calendar-day.is-unavailable {
+        color: #4d5d53;
     }
 }
 

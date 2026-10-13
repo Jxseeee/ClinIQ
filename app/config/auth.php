@@ -211,7 +211,7 @@ function ensureNurseAccountSchema(): bool
             "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS
              WHERE TABLE_SCHEMA = DATABASE()
                AND TABLE_NAME IN ('Nurses', 'ClinicVisits', 'Messages', 'Announcements', 'AuditLogs', 'ActiveChatSessions', 'ChatQueue',
-                                  'Notifications', 'NurseNotificationReads')"
+                                  'Notifications', 'NurseNotificationReads', 'ClinicCheckIns', 'OtherPatients')"
         );
         foreach ($rows as $row) {
             $columns[strtolower($row['TABLE_NAME'])][strtolower($row['COLUMN_NAME'])] = strtolower($row['COLUMN_TYPE']);
@@ -277,6 +277,7 @@ function ensureNurseAccountSchema(): bool
                 $pdo->exec("ALTER TABLE {$table} MODIFY UserRole ENUM('student', 'admin', 'nurse') NOT NULL");
             }
         }
+        installNursePatientSchema($pdo, $columns);
         $ready = true;
     } catch (PDOException $error) {
         error_log('Could not install nurse accounts: ' . $error->getMessage());
@@ -284,6 +285,97 @@ function ensureNurseAccountSchema(): bool
     }
     return $ready;
 }
+
+/**
+ * Lets Check In record patients who aren't students or admins:
+ * - nurses: ClinicVisits/ClinicCheckIns.PatientNurseID (the nurse who is the patient, unlike
+ *   ClinicVisits.NurseID, the nurse who recorded the visit);
+ * - other patients (faculty, non-teaching staff, visitors): the OtherPatients table and OtherPatientID.
+ * Check-ins accept the 'nurse' and 'other' person types, and the "exactly one patient per row" checks are
+ * rewritten to allow them. Failures are logged but never stop nurse accounts from working; Check In just
+ * won't offer the new patient types.
+ */
+function installNursePatientSchema(PDO $pdo, array $columns): void
+{
+    $missing = static fn(string $table, string $column): bool
+        => isset($columns[$table]) && !isset($columns[$table][$column]);
+    try {
+        if (!isset($columns['otherpatients'])) {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS OtherPatients (
+                    OtherPatientID INT AUTO_INCREMENT PRIMARY KEY,
+                    FullName VARCHAR(120) NOT NULL,
+                    PatientType VARCHAR(50) NOT NULL,
+                    Department VARCHAR(100) NULL,
+                    ContactNumber VARCHAR(20) NULL,
+                    CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_other_patients_name (FullName)
+                )"
+            );
+        }
+        if ($missing('clinicvisits', 'patientnurseid')) {
+            $pdo->exec(
+                "ALTER TABLE ClinicVisits
+                 ADD COLUMN PatientNurseID INT NULL AFTER StaffID,
+                 ADD INDEX idx_clinic_visits_patient_nurse_created (PatientNurseID, CreatedAt),
+                 ADD CONSTRAINT fk_clinic_visits_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE"
+            );
+        }
+        if (isset($columns['cliniccheckins']['persontype']) && !str_contains($columns['cliniccheckins']['persontype'], "'other'")) {
+            $pdo->exec("ALTER TABLE ClinicCheckIns MODIFY PersonType ENUM('student', 'staff', 'nurse', 'other') NOT NULL");
+        }
+        if ($missing('cliniccheckins', 'patientnurseid')) {
+            $pdo->exec(
+                "ALTER TABLE ClinicCheckIns
+                 ADD COLUMN PatientNurseID INT NULL AFTER StaffID,
+                 ADD INDEX idx_checkins_patient_nurse_active (PatientNurseID, CheckedOutAt),
+                 ADD CONSTRAINT fk_checkins_patient_nurse FOREIGN KEY (PatientNurseID) REFERENCES Nurses(NurseID) ON DELETE CASCADE"
+            );
+        }
+        if ($missing('clinicvisits', 'otherpatientid')) {
+            $pdo->exec(
+                "ALTER TABLE ClinicVisits
+                 ADD COLUMN OtherPatientID INT NULL AFTER PatientNurseID,
+                 ADD INDEX idx_clinic_visits_other_patient_created (OtherPatientID, CreatedAt),
+                 ADD CONSTRAINT fk_clinic_visits_other_patient FOREIGN KEY (OtherPatientID) REFERENCES OtherPatients(OtherPatientID) ON DELETE CASCADE"
+            );
+        }
+        if ($missing('cliniccheckins', 'otherpatientid')) {
+            $pdo->exec(
+                "ALTER TABLE ClinicCheckIns
+                 ADD COLUMN OtherPatientID INT NULL AFTER PatientNurseID,
+                 ADD INDEX idx_checkins_other_patient_active (OtherPatientID, CheckedOutAt),
+                 ADD CONSTRAINT fk_checkins_other_patient FOREIGN KEY (OtherPatientID) REFERENCES OtherPatients(OtherPatientID) ON DELETE CASCADE"
+            );
+        }
+        // Rewrite an existing one-patient check only if it doesn't know about every patient type yet
+        // (databases created without these checks are left alone).
+        $patientChecks = [
+            'chk_clinic_visit_person' => ['ClinicVisits', CLINIC_PATIENT_VISIT_CHECK],
+            'chk_checkin_person' => ['ClinicCheckIns', CLINIC_PATIENT_CHECKIN_CHECK],
+        ];
+        $existingChecks = $pdo->query(
+            "SELECT CONSTRAINT_NAME, CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS
+             WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME IN ('chk_clinic_visit_person', 'chk_checkin_person')"
+        )->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($patientChecks as $name => [$table, $clause]) {
+            if (isset($existingChecks[$name]) && !str_contains(strtolower((string) $existingChecks[$name]), 'otherpatientid')) {
+                $pdo->exec("ALTER TABLE {$table} DROP CHECK {$name}");
+                $pdo->exec("ALTER TABLE {$table} ADD CONSTRAINT {$name} CHECK ({$clause})");
+            }
+        }
+    } catch (PDOException $error) {
+        error_log('Could not add nurse and other patients to Check In: ' . $error->getMessage());
+    }
+}
+
+// Each visit and check-in belongs to exactly one patient: a student, an admin (staff), a nurse, or another patient.
+const CLINIC_PATIENT_VISIT_CHECK = "((StudentID IS NOT NULL) + (StaffID IS NOT NULL) + (PatientNurseID IS NOT NULL) + (OtherPatientID IS NOT NULL)) = 1";
+const CLINIC_PATIENT_CHECKIN_CHECK = "((StudentID IS NOT NULL) + (StaffID IS NOT NULL) + (PatientNurseID IS NOT NULL) + (OtherPatientID IS NOT NULL)) = 1
+        AND ((PersonType = 'student' AND StudentID IS NOT NULL)
+          OR (PersonType = 'staff' AND StaffID IS NOT NULL)
+          OR (PersonType = 'nurse' AND PatientNurseID IS NOT NULL)
+          OR (PersonType = 'other' AND OtherPatientID IS NOT NULL))";
 
 /** True for a nurse session that may not use the portal yet: the account is gone, or still on the default password. */
 function nurseAccessBlocked(): bool
