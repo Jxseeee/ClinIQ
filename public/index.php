@@ -6,7 +6,8 @@ requireAdmin();
 $user = currentUser();
 $totalStudents   = (int) $pdo->query("SELECT COUNT(*) FROM Students")->fetchColumn();
 $recentStudents  = $pdo->query(
-    "SELECT StudentID, FirstName, LastName, Email, CreatedAt FROM Students ORDER BY CreatedAt DESC LIMIT 5"
+    "SELECT StudentID, FirstName, LastName, Email, CreatedAt, " . profileImageSelectSql($pdo, 'Students', 'Students') . " AS PhotoPath
+     FROM Students ORDER BY CreatedAt DESC LIMIT 5"
 )->fetchAll(PDO::FETCH_ASSOC);
 $totalVisits = countClinicVisits($pdo);
 $clinicOccupancy = fetchClinicOccupancy($pdo);
@@ -18,6 +19,12 @@ $estimatedWait = $queueWaiting > 0
     : 'No wait';
 
 $recentVisits = fetchClinicVisits($pdo, null, 5);
+
+// Most Common Illness card: top complaints over the last 30 days, with one image per rank.
+$illnessPeriodDays = 30;
+$commonComplaints = fetchCommonComplaints($pdo, $illnessPeriodDays, 3);
+$topComplaint = $commonComplaints['items'][0] ?? null;
+$illnessIcons = ['Common.png', 'Illness.png', 'Flu.png'];
 $adminPageTitle = 'Dashboard';
 ?>
 <!DOCTYPE html>
@@ -71,6 +78,8 @@ $adminPageTitle = 'Dashboard';
             </article>
         </div>
 
+        <div class="admin-dashboard-body">
+        <div class="admin-dashboard-primary">
         <div class="student-dashboard-grid admin-dashboard-main-grid">
 
             <!-- Recent Students -->
@@ -84,7 +93,7 @@ $adminPageTitle = 'Dashboard';
                     <div class="dashboard-announcement-list">
                         <?php foreach ($recentStudents as $s): ?>
                             <article class="dashboard-announcement-item">
-                                <div class="announcement-round-icon"><?= studentDashboardIcon('user') ?></div>
+                                <?= personAvatarHtml($s['PhotoPath'] ?? null, (string) $s['FirstName']) ?>
                                 <div>
                                     <h3><?= htmlspecialchars($s['FirstName'] . ' ' . $s['LastName']) ?></h3>
                                     <p>#<?= htmlspecialchars($s['StudentID']) ?><?= !empty($s['Email']) ? ' &mdash; ' . htmlspecialchars($s['Email']) : '' ?></p>
@@ -100,18 +109,6 @@ $adminPageTitle = 'Dashboard';
                     <div class="dashboard-empty">No students yet.</div>
                 <?php endif; ?>
             </section>
-
-            <!-- Queue Status -->
-            <section class="student-side-card queue-card-dashboard">
-                <div class="dashboard-section-title">
-                    <span><?= studentDashboardIcon('headset') ?></span>
-                    <h2>Queue Status</h2>
-                </div>
-                <p>Students currently waiting</p>
-                <strong><?= $queueWaiting ?></strong>
-                <p>Chat limit: <?= CHAT_ACTIVE_LIMIT ?> active</p>
-                <b><?= htmlspecialchars($estimatedWait) ?></b>
-            </section>
         </div>
 
         <section class="admin-table-section student-announcements-panel">
@@ -124,7 +121,7 @@ $adminPageTitle = 'Dashboard';
                 <div class="dashboard-announcement-list">
                     <?php foreach ($recentVisits as $visit): ?>
                         <article class="dashboard-announcement-item">
-                            <div class="announcement-round-icon"><?= studentDashboardIcon('file') ?></div>
+                            <?= personAvatarHtml($visit['PersonPhotoPath'] ?? null, (string) $visit['FirstName']) ?>
                             <div>
                                 <h3><?= htmlspecialchars($visit['FirstName'] . ' ' . $visit['LastName']) ?></h3>
                                 <p><?= htmlspecialchars(mb_strimwidth($visit['Complaint'], 0, 120, '...')) ?></p>
@@ -140,6 +137,62 @@ $adminPageTitle = 'Dashboard';
                 <div class="dashboard-empty">No clinic visits recorded yet.</div>
             <?php endif; ?>
         </section>
+        </div>
+
+        <aside class="admin-dashboard-insights" aria-label="Clinic insights">
+            <!-- Most Common Illness -->
+            <section class="student-side-card dashboard-insight-card illness-insight-card">
+                <div class="dashboard-section-title">
+                    <span><?= studentDashboardIcon('pulse') ?></span>
+                    <h2>Most Common Illness</h2>
+                </div>
+
+                <?php if ($topComplaint): ?>
+                    <div class="illness-top illness-tone-1">
+                        <span class="illness-chip" aria-hidden="true"><img src="assets/images/<?= $illnessIcons[0] ?>" alt=""></span>
+                        <div>
+                            <strong title="<?= htmlspecialchars($topComplaint['label']) ?>"><?= htmlspecialchars($topComplaint['label']) ?></strong>
+                            <small><?= $topComplaint['cases'] ?> <?= $topComplaint['cases'] === 1 ? 'case' : 'cases' ?> in the last <?= $illnessPeriodDays ?> days</small>
+                        </div>
+                    </div>
+
+                    <ol class="illness-list">
+                        <?php foreach ($commonComplaints['items'] as $rank => $complaint): ?>
+                            <li class="illness-item illness-tone-<?= $rank + 1 ?>">
+                                <span class="illness-chip" aria-hidden="true"><img src="assets/images/<?= $illnessIcons[$rank] ?? $illnessIcons[0] ?>" alt=""></span>
+                                <div class="illness-item-head">
+                                    <span class="illness-item-name" title="<?= htmlspecialchars($complaint['label']) ?>"><?= htmlspecialchars($complaint['label']) ?></span>
+                                    <span class="illness-item-count"><b><?= $complaint['cases'] ?></b> <?= $complaint['cases'] === 1 ? 'case' : 'cases' ?></span>
+                                </div>
+                                <span class="illness-bar" role="img"
+                                      aria-label="<?= htmlspecialchars($complaint['label']) ?>: <?= $complaint['share'] ?>% of <?= $commonComplaints['total'] ?> visits">
+                                    <span style="--illness-share: <?= $complaint['share'] ?>%"></span>
+                                </span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ol>
+                <?php else: ?>
+                    <div class="dashboard-empty">No complaints recorded in the last <?= $illnessPeriodDays ?> days.</div>
+                <?php endif; ?>
+            </section>
+
+            <!-- Queue Status -->
+            <section class="student-side-card queue-card-dashboard">
+                <div class="dashboard-section-title">
+                    <span><?= studentDashboardIcon('headset') ?></span>
+                    <h2>Queue Status</h2>
+                </div>
+                <div class="queue-card-count" title="Students currently waiting">
+                    <strong><?= $queueWaiting ?></strong>
+                    <span><?= $queueWaiting === 1 ? 'student' : 'students' ?> currently waiting</span>
+                </div>
+                <div class="queue-card-footer">
+                    <b><?= htmlspecialchars($estimatedWait) ?></b>
+                    <span>Chat limit: <?= CHAT_ACTIVE_LIMIT ?> active</span>
+                </div>
+            </section>
+        </aside>
+        </div>
 
     <?php include __DIR__ . '/../app/includes/admin-dashboard-end.php'; ?>
     <script src="assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>

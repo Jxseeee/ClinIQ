@@ -184,6 +184,32 @@ function profileImageUrl(?string $relativePath, string $basePath): ?string
     return rtrim($basePath, '/') . '/' . ltrim($relativePath, '/');
 }
 
+/** Select expression for an account's profile photo path ($alias.ProfileImagePath), or NULL before that column exists. */
+function profileImageSelectSql(PDO $pdo, string $table, string $alias): string
+{
+    return databaseColumnExists($pdo, $table, 'ProfileImagePath') ? $alias . '.ProfileImagePath' : 'NULL';
+}
+
+/**
+ * Round avatar for a student or staff member: their uploaded profile photo, or the same
+ * initial-letter placeholder the sidebar shows when no photo has been uploaded.
+ */
+function personAvatarHtml(?string $relativePath, string $name, string $extraClass = ''): string
+{
+    $class = trim('person-avatar ' . $extraClass);
+    $relativePath = trim((string) $relativePath);
+    $absolutePath = $relativePath !== '' ? profileImageAbsolutePath($relativePath) : null;
+
+    if ($absolutePath !== null && is_file($absolutePath)) {
+        return '<span class="' . htmlspecialchars($class) . '" aria-hidden="true">'
+            . '<img src="' . htmlspecialchars((string) profileImageUrl($relativePath, getBasePath())) . '" alt="" loading="lazy">'
+            . '</span>';
+    }
+
+    $initial = mb_strtoupper(mb_substr(trim($name) !== '' ? trim($name) : '?', 0, 1));
+    return '<span class="' . htmlspecialchars($class . ' is-placeholder') . '" aria-hidden="true">' . htmlspecialchars($initial) . '</span>';
+}
+
 function deleteStoredProfileImage(?string $relativePath): void
 {
     if ($relativePath === null) {
@@ -490,10 +516,13 @@ function fetchClinicVisits(PDO $pdo, ?int $studentId = null, int $limit = 0, arr
 
     [$checkInSelect, $checkInJoin] = clinicVisitCheckInSql($pdo);
     [$whereSql, $params] = clinicVisitWhereSql($studentId, $filters);
+    $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
+    $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
     $sql = "SELECT v.*,
                CASE WHEN v.StudentID IS NOT NULL THEN s.FirstName ELSE staff.FullName END AS FirstName,
                CASE WHEN v.StudentID IS NOT NULL THEN s.LastName ELSE '' END AS LastName,
                CASE WHEN v.StudentID IS NOT NULL THEN 'student' ELSE 'staff' END AS PersonType,
+               CASE WHEN v.StudentID IS NOT NULL THEN {$studentPhoto} ELSE {$staffPhoto} END AS PersonPhotoPath,
                COALESCE(v.StudentID, v.StaffID) AS PersonID,
                a.FullName AS AdminName,
                {$checkInSelect}
@@ -521,6 +550,48 @@ function countClinicVisits(PDO $pdo, ?int $studentId = null, array $filters = []
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits v " . CLINIC_VISIT_PEOPLE_JOINS . $whereSql);
     $stmt->execute($params);
     return (int) $stmt->fetchColumn();
+}
+
+/**
+ * The most frequent visit complaints in the last $days days (today included), for the admin dashboard.
+ * Complaints are free text, so they are grouped case-insensitively after trimming.
+ * Returns ['total' => visits with a complaint, 'items' => [['label', 'cases', 'share' (% of total)], ...]].
+ */
+function fetchCommonComplaints(PDO $pdo, int $days = 30, int $limit = 3): array
+{
+    $result = ['total' => 0, 'items' => []];
+    if (!databaseTableExists($pdo, 'ClinicVisits')) {
+        return $result;
+    }
+
+    $since = (new DateTimeImmutable('today'))->modify('-' . max(0, $days - 1) . ' days')->format('Y-m-d 00:00:00');
+    $complaintWhere = "WHERE CreatedAt >= ? AND TRIM(COALESCE(Complaint, '')) <> ''";
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM ClinicVisits {$complaintWhere}");
+    $stmt->execute([$since]);
+    $result['total'] = (int) $stmt->fetchColumn();
+    if ($result['total'] === 0) {
+        return $result;
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT LOWER(TRIM(Complaint)) AS ComplaintKey, MIN(TRIM(Complaint)) AS Label, COUNT(*) AS Cases
+         FROM ClinicVisits {$complaintWhere}
+         GROUP BY ComplaintKey
+         ORDER BY Cases DESC, ComplaintKey ASC
+         LIMIT " . max(1, $limit)
+    );
+    $stmt->execute([$since]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $label = (string) $row['Label'];
+        $result['items'][] = [
+            'label' => mb_strtoupper(mb_substr($label, 0, 1)) . mb_substr($label, 1),
+            'cases' => (int) $row['Cases'],
+            'share' => round((int) $row['Cases'] / $result['total'] * 100, 1),
+        ];
+    }
+
+    return $result;
 }
 
 /** Visit totals per status ('open', 'completed', 'follow-up') for the same filters. */
@@ -564,11 +635,14 @@ function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
         $params = [$term, $term, $term];
     }
 
+    $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
+    $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
     $sql = "SELECT 'student' AS PersonType,
                    s.StudentID AS PersonID,
                    CONCAT(s.FirstName, ' ', s.LastName) AS DisplayName,
                    CONCAT('#', s.StudentID) AS Details,
-                   CONCAT_WS(' ', s.FirstName, s.LastName, s.StudentID) AS SearchText
+                   CONCAT_WS(' ', s.FirstName, s.LastName, s.StudentID) AS SearchText,
+                   {$studentPhoto} AS PhotoPath
             FROM Students s
             {$studentWhere}
             UNION ALL
@@ -576,7 +650,8 @@ function searchCheckInPeople(PDO $pdo, string $query, int $limit = 10): array
                    staff.AdminID AS PersonID,
                    staff.FullName AS DisplayName,
                    '' AS Details,
-                   staff.FullName AS SearchText
+                   staff.FullName AS SearchText,
+                   {$staffPhoto} AS PhotoPath
             FROM Admins staff
             {$staffWhere}
             ORDER BY DisplayName ASC";
@@ -595,16 +670,18 @@ function fetchCheckInPerson(PDO $pdo, string $personType, int $personId): ?array
     }
 
     if ($personType === 'student') {
+        $photo = profileImageSelectSql($pdo, 'Students', 'Students');
         $stmt = $pdo->prepare(
             "SELECT 'student' AS PersonType, StudentID AS PersonID,
                     CONCAT(FirstName, ' ', LastName) AS DisplayName,
-                    CONCAT('#', StudentID) AS Details
+                    CONCAT('#', StudentID) AS Details, {$photo} AS PhotoPath
              FROM Students WHERE StudentID = ?"
         );
     } else {
+        $photo = profileImageSelectSql($pdo, 'Admins', 'Admins');
         $stmt = $pdo->prepare(
             "SELECT 'staff' AS PersonType, AdminID AS PersonID, FullName AS DisplayName,
-                    '' AS Details
+                    '' AS Details, {$photo} AS PhotoPath
              FROM Admins WHERE AdminID = ?"
         );
     }
@@ -644,12 +721,15 @@ function fetchActiveClinicCheckIns(PDO $pdo): array
     if (!databaseTableExists($pdo, 'ClinicCheckIns')) {
         return [];
     }
+    $studentPhoto = profileImageSelectSql($pdo, 'Students', 's');
+    $staffPhoto = profileImageSelectSql($pdo, 'Admins', 'staff');
     return $pdo->query(
         "SELECT c.*, v.Complaint, v.Status,
                 COALESCE(CONCAT(s.FirstName, ' ', s.LastName), staff.FullName) AS DisplayName,
                 CASE WHEN c.PersonType = 'student'
                      THEN CONCAT('#', s.StudentID, ' · Student')
-                     ELSE CONCAT('@', staff.Username, ' · Staff') END AS Details
+                     ELSE CONCAT('@', staff.Username, ' · Staff') END AS Details,
+                CASE WHEN c.PersonType = 'student' THEN {$studentPhoto} ELSE {$staffPhoto} END AS PhotoPath
          FROM ClinicCheckIns c
          JOIN ClinicVisits v ON v.VisitID = c.VisitID
          LEFT JOIN Students s ON s.StudentID = c.StudentID

@@ -121,7 +121,7 @@ $adminBreadcrumbTrail = ['Check In'];
                             <a href="check-in.php?person_type=<?= urlencode($person['PersonType']) ?>&person_id=<?= (int) $person['PersonID'] ?>"
                                class="checkin-person-result" role="option" data-checkin-person
                                data-search-text="<?= htmlspecialchars($person['SearchText']) ?>">
-                                <span class="checkin-person-icon"><?= studentDashboardIcon($person['PersonType'] === 'student' ? 'user' : 'settings') ?></span>
+                                <?= personAvatarHtml($person['PhotoPath'] ?? null, $person['DisplayName'], 'checkin-person-icon') ?>
                                 <span><strong><?= htmlspecialchars($person['DisplayName']) ?></strong><?php if ($person['Details'] !== ''): ?><small><?= htmlspecialchars($person['Details']) ?></small><?php endif; ?></span>
                                 <span><?= ucfirst($person['PersonType']) ?></span>
                             </a>
@@ -136,7 +136,7 @@ $adminBreadcrumbTrail = ['Check In'];
                 <?php if ($selectedPerson): ?>
                     <section class="checkin-panel checkin-form-panel">
                         <div class="checkin-selected-person">
-                            <span><?= studentDashboardIcon($selectedType === 'student' ? 'user' : 'settings') ?></span>
+                            <?= personAvatarHtml($selectedPerson['PhotoPath'] ?? null, $selectedPerson['DisplayName']) ?>
                             <div><small>Checking in <?= htmlspecialchars(ucfirst($selectedType)) ?></small><strong><?= htmlspecialchars($selectedPerson['DisplayName']) ?></strong><?php if ($selectedPerson['Details'] !== ''): ?><p><?= htmlspecialchars($selectedPerson['Details']) ?></p><?php endif; ?></div>
                             <a href="check-in.php" class="btn btn-secondary">Change</a>
                         </div>
@@ -183,7 +183,7 @@ $adminBreadcrumbTrail = ['Check In'];
                     <div class="checkin-current-list">
                         <?php foreach ($activeCheckIns as $checkIn): ?>
                             <article class="checkin-current-person">
-                                <span><?= studentDashboardIcon($checkIn['PersonType'] === 'student' ? 'user' : 'settings') ?></span>
+                                <?= personAvatarHtml($checkIn['PhotoPath'] ?? null, (string) $checkIn['DisplayName']) ?>
                                 <div><strong><?= htmlspecialchars($checkIn['DisplayName']) ?></strong><small><?= htmlspecialchars($checkIn['Details']) ?></small><time datetime="<?= date('c', strtotime($checkIn['CheckedInAt'])) ?>">Time in <?= date('g:i A', strtotime($checkIn['CheckedInAt'])) ?></time></div>
                                 <form method="POST" data-confirm
                                       data-confirm-title="Confirm check-out"
