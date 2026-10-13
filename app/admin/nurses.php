@@ -251,8 +251,7 @@ $adminBreadcrumbTrail = ['Nurses'];
                 <div class="nurses-empty-state">
                     <span><?= studentDashboardIcon('nurse') ?></span>
                     <h3>No nurses added yet</h3>
-                    <p>Add the clinic team, then toggle who is currently on duty.</p>
-                    <button type="button" class="btn btn-success" data-nurse-dialog-open="add-nurse-dialog">Add first nurse</button>
+                    <p>Use <strong>+ Add Nurse</strong> above to add the clinic team, then toggle who is currently on duty.</p>
                 </div>
             <?php endif; ?>
         </section>
