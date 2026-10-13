@@ -7,21 +7,20 @@ $data = fetchStudentFullProfile($pdo, (int)$_SESSION['user_id']);
 if (!$data) { header("Location: ../public/logout.php"); exit; }
 
 ['student' => $student, 'g1' => $g1, 'g2' => $g2, 'medHistory' => $medHistory] = $data;
+$profileComplete = !empty($student['Course']) && !empty($student['Gender']) && !empty($student['DateOfBirth']) && !empty($student['StreetAddress']);
 $studentPageTitle = 'Patient Records';
 $uploadErrors = [];
 $clinicVisits = fetchClinicVisits($pdo, (int) $_SESSION['user_id']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_consent_image') {
     verifyCsrfToken();
-    $upload = is_array($_FILES['consent_image'] ?? null) ? $_FILES['consent_image'] : [];
-    $uploadTmp = (string) ($upload['tmp_name'] ?? '');
 
-    if ((int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || $uploadTmp === '' || !is_uploaded_file($uploadTmp)) {
+    if (empty($_FILES['consent_image']['name']) || !is_uploaded_file($_FILES['consent_image']['tmp_name'])) {
         $uploadErrors[] = 'Please choose an image to upload.';
-    } elseif ((int) ($upload['size'] ?? 0) > 5 * 1024 * 1024) {
+    } elseif ($_FILES['consent_image']['size'] > 5 * 1024 * 1024) {
         $uploadErrors[] = 'Image must be 5MB or smaller.';
     } else {
-        $mime = mime_content_type($uploadTmp);
+        $mime = mime_content_type($_FILES['consent_image']['tmp_name']);
         $extensions = [
             'image/jpeg' => 'jpg',
             'image/png'  => 'png',
@@ -30,32 +29,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
 
         if (!isset($extensions[$mime])) {
             $uploadErrors[] = 'Only JPG, PNG, or WEBP images are allowed.';
-        } elseif (getimagesize($uploadTmp) === false) {
-            $uploadErrors[] = 'The selected file is not a readable image.';
         } else {
             $uploadDir = dirname(__DIR__) . '/public/uploads/consent';
             if (!is_dir($uploadDir)) {
                 mkdir($uploadDir, 0775, true);
             }
 
-            // Random names keep guardian ID images unguessable; .htaccess also blocks direct access.
-            $filename = 'consent_' . (int) $_SESSION['user_id'] . '_' . bin2hex(random_bytes(16)) . '.' . $extensions[$mime];
+            $filename = 'consent_' . (int) $_SESSION['user_id'] . '_' . time() . '.' . $extensions[$mime];
             $target = $uploadDir . '/' . $filename;
 
-            if (move_uploaded_file($uploadTmp, $target)) {
+            if (move_uploaded_file($_FILES['consent_image']['tmp_name'], $target)) {
+                if (!empty($student['ConsentImagePath'])) {
+                    $oldPath = dirname(__DIR__) . '/' . ltrim($student['ConsentImagePath'], '/');
+                    if (is_file($oldPath)) {
+                        unlink($oldPath);
+                    }
+                }
+
                 $relativePath = 'public/uploads/consent/' . $filename;
                 $stmt = $pdo->prepare("UPDATE Students SET ConsentImagePath = ? WHERE StudentID = ?");
                 $stmt->execute([$relativePath, $_SESSION['user_id']]);
-                // Remove the previous image only after the new path is saved.
-                if (!empty($student['ConsentImagePath']) && $student['ConsentImagePath'] !== $relativePath) {
-                    deleteStoredConsentImage($student['ConsentImagePath']);
-                }
-                auditLog(
-                    $pdo,
-                    'clinic_form',
-                    'form.guardian_id_uploaded',
-                    empty($student['ConsentImagePath']) ? 'Uploaded a parent/guardian ID image.' : 'Replaced the parent/guardian ID image.'
-                );
                 header('Location: profile.php?upload=success');
                 exit;
             }
@@ -69,7 +62,14 @@ $medMap = [];
 foreach ($medHistory as $row) {
     $medMap[$row['Illness']] = $row;
 }
-$illnesses = clinicIllnessList();
+$illnesses = [
+    'Asthma', 'Chicken Pox', 'Chronic Ear Infections or Otitis Media',
+    'Diabetes', 'Epilepsy', 'Fainting Spells', 'Febrile Convulsions',
+    'Heart Disorder', 'Hepatitis A', 'Hepatitis B',
+    'Measles', 'Meningitis', 'Mumps', 'Primary Complex',
+    'Rubella', 'Scoliosis', 'Skin Problems',
+    'Urinary Tract Infections', 'Whooping Cough', 'Others',
+];
 $studentContentClass = 'patient-records-content';
 ?>
 <!DOCTYPE html>
@@ -79,14 +79,14 @@ $studentContentClass = 'patient-records-content';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Profile</title>
     <link rel="stylesheet" href="../public/assets/css/tailwind.css">
-    <link rel="stylesheet" href="../public/assets/css/style.css?v=<?= assetVersion('css/style.css') ?>">
+    <link rel="stylesheet" href="../public/assets/css/style.css">
     <link rel="icon" type="image/png" href="../public/assets/images/favicon.png">
 </head>
 <body class="student-dashboard-page antialiased selection:bg-green-200 selection:text-green-950">
     <?php include __DIR__ . '/../app/includes/student-dashboard-start.php'; ?>
     <div class="patient-records-page">
         <div class="patient-records-actions">
-            <h1>Patient Records</h1>
+            <h1>FCAT School Clinic Form 01</h1>
             <div>
                 <a href="edit-profile.php" class="btn btn-success paper-download-btn">Edit</a>
             </div>
@@ -104,6 +104,11 @@ $studentContentClass = 'patient-records-content';
             <div class="alert alert-success">Consent image uploaded successfully.</div>
         <?php endif; ?>
 
+        <?php if (!$profileComplete): ?>
+            <div class="alert alert-warning">
+                Your clinic form is incomplete. Please <a href="edit-profile.php"><strong>fill it out</strong></a>.
+            </div>
+        <?php endif; ?>
 
         <?php if (!empty($uploadErrors)): ?>
             <div class="alert alert-danger">
@@ -116,7 +121,6 @@ $studentContentClass = 'patient-records-content';
         <?php endif; ?>
 
         <section class="clinic-paper-form">
-            <p class="paper-form-code">FCAT School Clinic Form 01</p>
             <div class="paper-section">
                 <h2>Student Information</h2>
                 <table class="paper-table">
@@ -190,8 +194,7 @@ $studentContentClass = 'patient-records-content';
                     <?php foreach ($clinicVisits as $visit): ?>
                         <article class="clinic-visit-card">
                             <div>
-                                <h3><?= date('M d, Y', strtotime($visit['TimeIn'] ?? $visit['CreatedAt'])) ?></h3>
-                                <?= visitTimesHtml($visit) ?>
+                                <h3><?= date('M d, Y g:i A', strtotime($visit['CreatedAt'])) ?></h3>
                                 <p><?= htmlspecialchars($visit['Complaint']) ?></p>
                                 <?php if (!empty($visit['Treatment'])): ?>
                                     <small>Treatment: <?= htmlspecialchars($visit['Treatment']) ?></small>
@@ -217,7 +220,6 @@ $studentContentClass = 'patient-records-content';
 
         <section class="consent-paper-form">
             <div class="consent-paper-inner">
-                <p class="paper-form-code">FCAT School Clinic Form 02</p>
                 <h2>CONSENT FORM</h2>
                 <p>I give consent for my child to receive the following:</p>
                 <div class="consent-line"><span>First aid treatment at the school clinic</span><span><?= consentChoiceMarks(null) ?></span></div>
@@ -262,6 +264,6 @@ $studentContentClass = 'patient-records-content';
         </section>
     </div>
     <?php include __DIR__ . '/../app/includes/student-dashboard-end.php'; ?>
-    <script src="../public/assets/js/main.js?v=<?= assetVersion('js/main.js') ?>"></script>
+    <script src="../public/assets/js/main.js"></script>
 </body>
 </html>
