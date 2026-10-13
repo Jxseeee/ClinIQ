@@ -1013,13 +1013,17 @@ function initConsentImageUpload() {
 function initProfilePhotoUpload() {
     document.querySelectorAll('[data-profile-photo-form]').forEach(function (form) {
         var input = form.querySelector('input[type="file"][name="profile_image"]');
-        var layout = form.closest('.settings-profile-layout');
-        var preview = layout ? layout.querySelector('[data-profile-preview]') : null;
+        // The Settings pages wrap the form in an avatar panel; the shared include uses a profile layout.
+        var container = form.closest('.settings-profile-layout, .student-profile-avatar-panel');
+        var preview = container ? container.querySelector('[data-profile-preview]') : null;
         var fileName = form.querySelector('.settings-profile-file-name');
         var submit = form.querySelector('.settings-profile-submit');
         var previewUrl = null;
 
-        if (!input || !preview || !fileName || !submit) return;
+        if (!input || !fileName || !submit) return;
+
+        // Save stays usable without JavaScript; with it, Save waits until a file is picked.
+        submit.disabled = !(input.files && input.files.length);
 
         input.addEventListener('change', function () {
             var file = input.files && input.files[0];
@@ -1038,7 +1042,7 @@ function initProfilePhotoUpload() {
             fileName.textContent = file.name;
             submit.disabled = false;
 
-            if (file.type && file.type.indexOf('image/') === 0) {
+            if (preview && file.type && file.type.indexOf('image/') === 0) {
                 previewUrl = URL.createObjectURL(file);
                 var image = document.createElement('img');
                 image.className = 'settings-profile-image';
@@ -1333,8 +1337,46 @@ function initClinicFormWizard() {
     };
     var currentStep = Math.max(1, Math.min(4, Number(form.dataset.startStep) || 1));
     var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var errorBox = form.querySelector('[data-wizard-error]');
 
     form.noValidate = true;
+
+    function fieldLabel(field) {
+        var group = field.closest('.form-group');
+        var label = group ? group.querySelector('label') : null;
+        var text = label ? label.textContent : (field.getAttribute('aria-label') || field.name || 'This field');
+        return text.replace(/\*/g, '').trim();
+    }
+
+    // Browsers hide their validation bubble as soon as the page scrolls, so the problem is also
+    // written into a visible alert and the field is outlined until the student edits it.
+    function reportInvalidField(step, field) {
+        showStep(step, false);
+        field.setAttribute('aria-invalid', 'true');
+
+        if (errorBox) {
+            errorBox.textContent = 'Step ' + step + ' (' + stepMeta[step][0] + '): '
+                + fieldLabel(field) + ' - ' + (field.validationMessage || 'Please check this field.');
+            errorBox.hidden = false;
+        }
+
+        field.scrollIntoView({ behavior: 'auto', block: 'center' });
+        field.focus({ preventScroll: true });
+        field.reportValidity();
+    }
+
+    function clearInvalidField(event) {
+        var field = event.target;
+        if (!field || field.getAttribute('aria-invalid') !== 'true' || !field.checkValidity()) return;
+        field.removeAttribute('aria-invalid');
+        if (errorBox && !form.querySelector('[aria-invalid="true"]')) {
+            errorBox.hidden = true;
+            errorBox.textContent = '';
+        }
+    }
+
+    form.addEventListener('input', clearInvalidField);
+    form.addEventListener('change', clearInvalidField);
 
     function fieldsForStep(step) {
         return stepElements
@@ -1380,8 +1422,7 @@ function initClinicFormWizard() {
         if (nextButton) {
             var invalidField = firstInvalidField(currentStep);
             if (invalidField) {
-                invalidField.reportValidity();
-                invalidField.focus();
+                reportInvalidField(currentStep, invalidField);
                 return;
             }
             showStep(currentStep + 1, true);
@@ -1397,9 +1438,7 @@ function initClinicFormWizard() {
             var invalidField = firstInvalidField(step);
             if (invalidField) {
                 event.preventDefault();
-                showStep(step, true);
-                invalidField.reportValidity();
-                invalidField.focus();
+                reportInvalidField(step, invalidField);
                 return;
             }
         }

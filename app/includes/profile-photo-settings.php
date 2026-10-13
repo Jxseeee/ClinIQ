@@ -43,7 +43,7 @@ $profilePhotoInputId = 'profile_image_' . ($profilePhotoRole ?? 'account');
                     <span>Choose photo</span>
                 </label>
                 <span class="settings-profile-file-name" aria-live="polite">No file selected</span>
-                <button type="submit" class="btn btn-success settings-profile-submit" disabled>Save photo</button>
+                <button type="submit" class="btn btn-success settings-profile-submit">Save photo</button>
             </form>
 
             <?php if ($profilePhotoUrl): ?>

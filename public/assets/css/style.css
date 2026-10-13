@@ -5390,6 +5390,27 @@ table tr:hover {
     width: 100%;
 }
 
+.clinic-wizard-error {
+    margin: 16px 0 0;
+}
+
+.clinic-wizard-form :is(input, select, textarea)[aria-invalid="true"] {
+    border-color: var(--maroon);
+    box-shadow: 0 0 0 3px rgba(143, 45, 61, 0.12);
+}
+
+.clinic-course-notice {
+    display: block;
+    margin-top: 6px;
+    color: var(--maroon);
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+html[data-theme="dark"] .clinic-course-notice {
+    color: #f2a0af;
+}
+
 .clinic-wizard-step {
     margin-top: 0;
     padding: 26px 0 8px;
@@ -5959,23 +5980,12 @@ button.birth-date-calendar-day:hover {
 
 /* ── Clinic Occupancy Dashboard Cards ───────────────── */
 
+/* Four cards: Total Students, Clinic Visits, Nurses on duty, People in clinic */
 .admin-dashboard-page .admin-dashboard-stat-grid {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.admin-dashboard-stat-grid .admin-primary-stat {
-    grid-column: span 2;
-}
-
-.admin-dashboard-stat-grid .admin-occupancy-stat {
-    grid-column: span 3;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .admin-dashboard-stat-grid .admin-occupancy-stat:nth-child(4)::after {
-    background: var(--gold);
-}
-
-.admin-dashboard-stat-grid .admin-occupancy-stat:nth-child(5)::after {
     background: var(--maroon);
 }
 
@@ -5983,24 +5993,11 @@ button.birth-date-calendar-day:hover {
     .admin-dashboard-page .admin-dashboard-stat-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-
-    .admin-dashboard-stat-grid .admin-primary-stat,
-    .admin-dashboard-stat-grid .admin-occupancy-stat {
-        grid-column: auto;
-    }
-
-    .admin-dashboard-stat-grid .admin-occupancy-stat:last-child {
-        grid-column: 1 / -1;
-    }
 }
 
 @media (max-width: 760px) {
     .admin-dashboard-page .admin-dashboard-stat-grid {
         grid-template-columns: 1fr;
-    }
-
-    .admin-dashboard-stat-grid .admin-occupancy-stat:last-child {
-        grid-column: auto;
     }
 }
 
